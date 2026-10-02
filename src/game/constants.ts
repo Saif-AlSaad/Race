@@ -23,11 +23,18 @@ export const OFFROAD_LIMIT = BASE_MAX_SPEED * 0.36;
 export const BOOST_TOP_MULT = 1.33;
 export const BOOST_ACCEL_MULT = 1.55;
 
+export type BodyStyle = "gt" | "proto" | "rally" | "cyber" | "muscle";
+export type WheelStyle = "forged_y" | "centerlock_star" | "bronze_dish" | "turbofan" | "muscle_deep";
+
 export interface CarDef {
   id: string;
   name: string;
   cls: string;
   desc: string;
+  bodyStyle: BodyStyle;
+  wheelStyle: WheelStyle;
+  caliperColor: string;
+  badgeText: string;
   // realistic motorsport specs
   engineType: string;
   bhp: number;
@@ -57,7 +64,11 @@ export const CARS: CarDef[] = [
     id: "solstice",
     name: "SOLSTICE S",
     cls: "GT // BALANCED",
-    desc: "Factory team spec. Neutral balance, endless golden-hour legs.",
+    desc: "Sculpted British Grand Tourer. Twin-turbo V8, continuous horizon lightbar, and endless high-speed stability.",
+    bodyStyle: "gt",
+    wheelStyle: "forged_y",
+    caliperColor: "#ffd600",
+    badgeText: "APX·S07",
     engineType: "4.0L TWIN-TURBO V8",
     bhp: 575,
     weightKg: 1390,
@@ -81,7 +92,11 @@ export const CARS: CarDef[] = [
     id: "furia",
     name: "CORSA FURIA",
     cls: "PROTO // TOP SPEED",
-    desc: "A straight-line missile. Treat the braking zones with respect.",
+    desc: "Italian Le Mans prototype hypercar. Extreme ground-effect venturis, screaming V12, and massive active swan-neck wing.",
+    bodyStyle: "proto",
+    wheelStyle: "centerlock_star",
+    caliperColor: "#ef4444",
+    badgeText: "CORSA·12",
     engineType: "6.5L QUAD-CAM V12",
     bhp: 740,
     weightKg: 1280,
@@ -105,7 +120,11 @@ export const CARS: CarDef[] = [
     id: "falcon",
     name: "FALCON MK-II",
     cls: "RALLYE // AGILITY",
-    desc: "Featherweight chassis. Lives on the curbs, thrives in the twist.",
+    desc: "Japanese Group-A widebody track weapon. Turbo boxer punch, blister arches, aggressive GT wing, and twin halo taillights.",
+    bodyStyle: "rally",
+    wheelStyle: "bronze_dish",
+    caliperColor: "#00e5ff",
+    badgeText: "MK2·RLY",
     engineType: "2.4L TURBOCHARGED BOXER",
     bhp: 510,
     weightKg: 1140,
@@ -125,6 +144,83 @@ export const CARS: CarDef[] = [
     statAcc: 0.94,
     statGrip: 0.96,
   },
+  {
+    id: "spectre",
+    name: "SPECTRE RS",
+    cls: "CYBER // HYPER-ELECTRIC",
+    desc: "Next-gen cybernetic hyper-coupe. Quad synchronous e-motors, active aero splitters, and full-width matrix LED lightbar.",
+    bodyStyle: "cyber",
+    wheelStyle: "turbofan",
+    caliperColor: "#a855f7",
+    badgeText: "CYB·001",
+    engineType: "QUAD SYNCHRONOUS E-MOTORS",
+    bhp: 820,
+    weightKg: 1350,
+    zeroToSixty: 2.3,
+    maxSpeedDisplay: 228,
+    lateralG: 1.34,
+    base: "#6366f1",
+    dark: "#2b236e",
+    light: "#a5b4fc",
+    glassHi: "#c7d2fe",
+    glassLo: "#0d0b24",
+    accent: "#38bdf8",
+    topSpeed: 1.04,
+    accel: 1.15,
+    grip: 1.05,
+    statTop: 0.90,
+    statAcc: 0.98,
+    statGrip: 0.88,
+  },
+  {
+    id: "venom",
+    name: "VENOM GT-R",
+    cls: "MUSCLE // RAW TORQUE",
+    desc: "Brutal widebody American muscle beast. Supercharged 6.2L crossplane V8, rear window louvers, dual stripes, and tri-bar sequential LEDs.",
+    bodyStyle: "muscle",
+    wheelStyle: "muscle_deep",
+    caliperColor: "#f97316",
+    badgeText: "V8·BRUTE",
+    engineType: "6.2L SUPERCHARGED HEMI V8",
+    bhp: 710,
+    weightKg: 1460,
+    zeroToSixty: 2.9,
+    maxSpeedDisplay: 218,
+    lateralG: 1.20,
+    base: "#15803d",
+    dark: "#0f3e1f",
+    light: "#4ade80",
+    glassHi: "#86efac",
+    glassLo: "#061f10",
+    accent: "#fbbf24",
+    topSpeed: 1.02,
+    accel: 1.06,
+    grip: 0.92,
+    statTop: 0.84,
+    statAcc: 0.88,
+    statGrip: 0.72,
+  },
+];
+
+export interface CustomPaint {
+  id: string;
+  name: string;
+  finish: "metallic" | "pearlescent" | "matte" | "gloss";
+  base: string;
+  dark: string;
+  light: string;
+  accent: string;
+}
+
+export const CUSTOM_PAINTS: CustomPaint[] = [
+  { id: "factory", name: "FACTORY SPEC", finish: "gloss", base: "#e07f16", dark: "#8a4a0c", light: "#ffc36e", accent: "#ffe9c2" },
+  { id: "gold", name: "LIQUID GOLD", finish: "metallic", base: "#d97706", dark: "#78350f", light: "#fde68a", accent: "#ffffff" },
+  { id: "rosso", name: "CORSA ROSSO", finish: "gloss", base: "#dc2626", dark: "#7f1d1d", light: "#fca5a5", accent: "#fef08a" },
+  { id: "cyan", name: "CYBER CYAN", finish: "pearlescent", base: "#06b6d4", dark: "#164e63", light: "#67e8f9", accent: "#a5f3fc" },
+  { id: "stealth", name: "STEALTH NERO", finish: "matte", base: "#1e212b", dark: "#0b0c10", light: "#4b5563", accent: "#38bdf8" },
+  { id: "british", name: "VERDE RACING", finish: "metallic", base: "#166534", dark: "#052e16", light: "#86efac", accent: "#fde047" },
+  { id: "violet", name: "HYPER PLUM", finish: "pearlescent", base: "#7c3aed", dark: "#3b0764", light: "#c4b5fd", accent: "#f472b6" },
+  { id: "arctic", name: "FROST WHITE", finish: "pearlescent", base: "#e2e8f0", dark: "#64748b", light: "#ffffff", accent: "#38bdf8" },
 ];
 
 export interface Rival {
@@ -133,16 +229,17 @@ export interface Rival {
   dark: string;
   light: string;
   accent: string;
+  carId: string;
 }
 
 export const RIVALS: Rival[] = [
-  { name: "VEX", base: "#3d7bd9", dark: "#1d3a75", light: "#8fb8ff", accent: "#d7e6ff" },
-  { name: "KIRA", base: "#7e3fd4", dark: "#3d1a6e", light: "#c79bff", accent: "#efe0ff" },
-  { name: "DUSK", base: "#2b2f3a", dark: "#12141b", light: "#8a93a8", accent: "#ffe9c2" },
-  { name: "MIRA", base: "#d44fa0", dark: "#6e1f50", light: "#ff9fd4", accent: "#ffe0f0" },
-  { name: "KANE", base: "#2f9e5f", dark: "#14532e", light: "#8fe0ae", accent: "#e2ffe9" },
-  { name: "JOLT", base: "#d9c13a", dark: "#6e5c12", light: "#fff0a0", accent: "#fff8d6" },
-  { name: "ORION", base: "#c9581e", dark: "#66300d", light: "#ffa675", accent: "#ffe7d6" },
+  { name: "VEX", base: "#3d7bd9", dark: "#1d3a75", light: "#8fb8ff", accent: "#d7e6ff", carId: "furia" },
+  { name: "KIRA", base: "#7e3fd4", dark: "#3d1a6e", light: "#c79bff", accent: "#efe0ff", carId: "spectre" },
+  { name: "DUSK", base: "#2b2f3a", dark: "#12141b", light: "#8a93a8", accent: "#ffe9c2", carId: "venom" },
+  { name: "MIRA", base: "#d44fa0", dark: "#6e1f50", light: "#ff9fd4", accent: "#ffe0f0", carId: "falcon" },
+  { name: "KANE", base: "#2f9e5f", dark: "#14532e", light: "#8fe0ae", accent: "#e2ffe9", carId: "solstice" },
+  { name: "JOLT", base: "#d9c13a", dark: "#6e5c12", light: "#fff0a0", accent: "#fff8d6", carId: "furia" },
+  { name: "ORION", base: "#c9581e", dark: "#66300d", light: "#ffa675", accent: "#ffe7d6", carId: "venom" },
 ];
 
 export type WeatherMode = "sunset" | "night" | "rain";

@@ -459,7 +459,7 @@ export class RaceEngine {
     const diffMult = DIFFICULTIES[this.difficulty]?.aiSpeedMult ?? 1.0;
     this.opponents = RIVALS.map((r, i) => ({
       name: r.name,
-      paint: { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent },
+      paint: { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent, carId: r.carId },
       z: attract ? 3000 + i * 2600 : 620 + i * 430 + (i % 2) * 160,
       total: attract ? 3000 + i * 2600 : 620 + i * 430 + (i % 2) * 160,
       offset: (i % 2 === 0 ? 0.55 : -0.55) + (Math.random() - 0.5) * 0.2,
@@ -467,7 +467,7 @@ export class RaceEngine {
       cruise: BASE_MAX_SPEED * (0.9 + Math.random() * 0.055) * diffMult,
       wob: Math.random() * 100,
       sprite: carSprite(
-        { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent },
+        { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent, carId: r.carId },
         false,
         this.weather,
       ),
@@ -1069,7 +1069,7 @@ export class RaceEngine {
     if (this.mode !== "attract") {
       const dw = this.playerDrawW();
       const braking = (this.ctlCached?.down ?? false) && this.speed > 300;
-      const sprite = carSprite(this.car, braking, this.weather);
+      const sprite = carSprite(this.car, braking, this.weather, this.upgrades);
       const dh = dw * (sprite.canvas.height / sprite.canvas.width);
       const bounce =
         Math.sin(this.time * 43) * speedPct * speedPct * height * 0.0035 +

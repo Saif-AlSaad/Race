@@ -251,6 +251,76 @@ export class AudioEngine {
     this.beep(880, 0.18, 0.15);
   }
 
+  revCar(carId: string) {
+    if (!this.ctx || !this.sfx || this.muted) return;
+    const t0 = this.ctx.currentTime;
+    const isV12 = carId.includes("furia");
+    const isBoxer = carId.includes("falcon");
+    const isCyber = carId.includes("spectre");
+    const isMuscle = carId.includes("venom");
+
+    if (isCyber) {
+      // Futuristic EV hyperdrive whine sweep
+      const osc = this.ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(180, t0);
+      osc.frequency.exponentialRampToValueAtTime(1600, t0 + 0.35);
+      osc.frequency.exponentialRampToValueAtTime(320, t0 + 0.7);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.linearRampToValueAtTime(0.24, t0 + 0.25);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
+      osc.connect(g);
+      g.connect(this.sfx);
+      osc.start(t0);
+      osc.stop(t0 + 0.85);
+    } else {
+      // Internal combustion roar: V8, V12, Boxer, or Muscle
+      const baseFreq = isV12 ? 95 : isMuscle ? 45 : isBoxer ? 62 : 68;
+      const peakFreq = isV12 ? 380 : isMuscle ? 190 : isBoxer ? 240 : 280;
+
+      const o1 = this.ctx.createOscillator();
+      o1.type = "sawtooth";
+      o1.frequency.setValueAtTime(baseFreq, t0);
+      o1.frequency.exponentialRampToValueAtTime(peakFreq, t0 + 0.32);
+      o1.frequency.exponentialRampToValueAtTime(baseFreq * 1.1, t0 + 0.75);
+
+      const o2 = this.ctx.createOscillator();
+      o2.type = isMuscle ? "square" : "sawtooth";
+      o2.frequency.setValueAtTime(baseFreq * 1.5, t0);
+      o2.frequency.exponentialRampToValueAtTime(peakFreq * 1.48, t0 + 0.32);
+      o2.frequency.exponentialRampToValueAtTime(baseFreq * 1.4, t0 + 0.75);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(450, t0);
+      filter.frequency.exponentialRampToValueAtTime(3200, t0 + 0.3);
+      filter.frequency.exponentialRampToValueAtTime(600, t0 + 0.75);
+
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.linearRampToValueAtTime(0.26, t0 + 0.1);
+      g.gain.setValueAtTime(0.25, t0 + 0.35);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
+
+      o1.connect(filter);
+      o2.connect(filter);
+      filter.connect(g);
+      g.connect(this.sfx);
+
+      o1.start(t0);
+      o2.start(t0);
+      o1.stop(t0 + 0.85);
+      o2.stop(t0 + 0.85);
+
+      if (isBoxer || !isMuscle) {
+        window.setTimeout(() => {
+          this.thud(0.6);
+        }, 340);
+      }
+    }
+  }
+
   setMuted(m: boolean) {
     this.muted = m;
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.03);

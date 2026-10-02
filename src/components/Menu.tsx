@@ -5,7 +5,8 @@ import {
 } from "lucide-react";
 import {
   CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime, type WeatherMode,
-  type DifficultyLevel, DIFFICULTIES, type CareerProgress, DEFAULT_UPGRADES
+  type DifficultyLevel, DIFFICULTIES, type CareerProgress, DEFAULT_UPGRADES,
+  CUSTOM_PAINTS
 } from "../game/constants";
 import { carPreview } from "../game/sprites";
 import { cn } from "../utils/cn";
@@ -47,7 +48,19 @@ export default function Menu({
   musicOn,
   onToggleMusic,
 }: MenuProps) {
-  const previews = useMemo(() => CARS.map((c) => ({ id: c.id, url: carPreview(c, weather) })), [weather]);
+  const previews = useMemo(() => {
+    let savedPaints: Record<string, string> = {};
+    try {
+      const p = localStorage.getItem("apex.garage_paints");
+      if (p) savedPaints = JSON.parse(p);
+    } catch {}
+    return CARS.map((c) => {
+      const paintId = savedPaints[c.id];
+      const cp = paintId && paintId !== "factory" ? CUSTOM_PAINTS.find((p) => p.id === paintId) : null;
+      const finalCar = cp ? { ...c, base: cp.base, dark: cp.dark, light: cp.light, accent: cp.accent } : c;
+      return { id: c.id, url: carPreview(finalCar, weather, career.upgrades[c.id]) };
+    });
+  }, [weather, career.upgrades]);
 
   const atmoName = weather === "night" ? "NEON MIDNIGHT" : weather === "rain" ? "CYBER STORM" : "GOLDEN HOUR";
   const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — NITRO SPEED BOOST — DRIFT TO CHARGE`;
@@ -268,7 +281,7 @@ export default function Menu({
         </div>
 
         {/* Machine Selection Grid */}
-        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3" style={{ animationDelay: "0.32s" }}>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" style={{ animationDelay: "0.32s" }}>
           {CARS.map((car, i) => {
             const active = car.id === carId;
             const preview = previews.find((p) => p.id === car.id)?.url;
@@ -281,12 +294,12 @@ export default function Menu({
                 key={car.id}
                 onClick={() => onSelectCar(car.id)}
                 className={cn(
-                  "animate-fade-up group relative overflow-hidden border text-left transition-all duration-300",
+                  "animate-fade-up group relative overflow-hidden border text-left transition-all duration-300 rounded-lg",
                   active
-                    ? "corner-frame border-ember-400/80 bg-night-800/95 shadow-[0_0_45px_rgba(255,123,28,0.25)] ring-1 ring-ember-400/40"
+                    ? "corner-frame border-ember-400/80 bg-night-800/95 shadow-[0_0_35px_rgba(255,123,28,0.25)] ring-1 ring-ember-400/40"
                     : "border-white/12 bg-night-900/85 backdrop-blur-md hover:border-white/30 hover:bg-night-800/90",
                 )}
-                style={{ animationDelay: `${0.32 + i * 0.07}s` }}
+                style={{ animationDelay: `${0.32 + i * 0.05}s` }}
               >
                 {/* Turntable Preview Container */}
                 <div className="relative overflow-hidden bg-night-950">
@@ -295,45 +308,45 @@ export default function Menu({
                       src={preview}
                       alt={car.name}
                       className={cn(
-                        "h-32 w-full object-contain sm:h-36 transition-transform duration-500",
+                        "h-28 w-full object-contain sm:h-32 transition-transform duration-500",
                         active ? "scale-105" : "group-hover:scale-[1.03]"
                       )}
                       draggable={false}
                     />
                   )}
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-night-900/90 via-transparent to-transparent" />
-                  <div className="absolute left-3 top-2.5 flex items-center gap-1.5">
+                  <div className="absolute left-2.5 top-2 flex flex-wrap items-center gap-1">
                     <span
                       className={cn(
-                        "px-2 py-0.5 text-[9px] font-bold tracking-[0.2em] border",
+                        "px-1.5 py-0.5 text-[8px] font-bold tracking-[0.16em] border rounded",
                         active
-                          ? "border-ember-400 bg-ember-500 text-night-900 shadow-[0_0_12px_rgba(255,158,61,0.5)]"
+                          ? "border-ember-400 bg-ember-500 text-night-900 font-black shadow-[0_0_10px_rgba(255,158,61,0.5)]"
                           : "border-white/15 bg-night-900/80 text-white/60"
                       )}
                     >
-                      {car.cls}
+                      {car.cls.split("//")[0].trim()}
                     </span>
                     {totalStages > 0 && (
-                      <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold bg-amber-400/20 border border-amber-400/50 text-amber-300">
-                        STAGE {totalStages}
+                      <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold bg-amber-400/20 border border-amber-400/50 text-amber-300 rounded">
+                        STG {totalStages}
                       </span>
                     )}
                   </div>
                 </div>
 
                 {/* Specs and details */}
-                <div className="space-y-2 p-3.5 bg-gradient-to-b from-transparent to-night-950/70">
+                <div className="space-y-1.5 p-3 bg-gradient-to-b from-transparent to-night-950/70">
                   <div className="flex items-baseline justify-between">
                     <div>
-                      <div className={cn("font-display text-lg italic tracking-wide", active ? "text-ember-300" : "text-white/90")}>
+                      <div className={cn("font-display text-base italic tracking-wide", active ? "text-ember-300" : "text-white/90")}>
                         {car.name}
                       </div>
-                      <div className="text-[10px] font-mono text-white/40">
-                        {tunedBhp} BHP {upgrades.engine > 0 && <span className="text-emerald-400">+{upgrades.engine * 28}</span>} // {car.weightKg} KG
+                      <div className="text-[9px] font-mono text-white/40 truncate">
+                        {tunedBhp} BHP // {car.weightKg} KG
                       </div>
                     </div>
                     {active && (
-                      <span className="font-display text-[9px] tracking-widest text-ember-400 font-bold animate-pulse">
+                      <span className="font-display text-[8px] tracking-widest text-ember-400 font-bold animate-pulse">
                         READY
                       </span>
                     )}

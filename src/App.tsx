@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CARS, STORAGE_BEST, STORAGE_CAR, STORAGE_WEATHER, STORAGE_SETTINGS,
   STORAGE_CAREER, STORAGE_DIFFICULTY, TOTAL_LAPS, formatTime, type WeatherMode,
   type GameSettings, DEFAULT_SETTINGS, type CareerProgress, INITIAL_CAREER_PROGRESS,
   type DifficultyLevel, DIFFICULTIES, type CareerEvent, CAREER_TIERS, type CarUpgrades,
-  DEFAULT_UPGRADES,
+  DEFAULT_UPGRADES, CUSTOM_PAINTS, type CarDef
 } from "./game/constants";
 import { RaceEngine, type RaceResult } from "./game/engine";
 import { getAudio } from "./game/audio";
@@ -116,7 +116,16 @@ export default function App() {
     audio.setEngineVolume(settings.engineVolume);
 
     const eng = new RaceEngine(canvas, audio, weather, settings);
-    const car = CARS.find((c) => c.id === (localStorage.getItem(STORAGE_CAR) ?? CARS[0].id)) ?? CARS[0];
+    const carIdSaved = localStorage.getItem(STORAGE_CAR) ?? CARS[0].id;
+    let car = CARS.find((c) => c.id === carIdSaved) ?? CARS[0];
+    try {
+      const savedPaints = JSON.parse(localStorage.getItem("apex.garage_paints") || "{}");
+      const paintId = savedPaints[car.id];
+      if (paintId && paintId !== "factory") {
+        const cp = CUSTOM_PAINTS.find((p) => p.id === paintId);
+        if (cp) car = { ...car, base: cp.base, dark: cp.dark, light: cp.light, accent: cp.accent };
+      }
+    } catch {}
     eng.setCar(car);
     eng.setDifficulty(difficulty);
     eng.setUpgrades(career.upgrades[car.id] || DEFAULT_UPGRADES);
@@ -394,17 +403,40 @@ export default function App() {
     audio.setMusicOn(!musicOn);
     setMusicOn(!musicOn);
   };
-  const selectCar = (id: string) => {
+  const selectCar = (id: string, customCarDef?: CarDef) => {
     setCarId(id);
     localStorage.setItem(STORAGE_CAR, id);
-    const car = CARS.find((c) => c.id === id);
+    let car = customCarDef || CARS.find((c) => c.id === id);
+    if (!customCarDef && car) {
+      try {
+        const savedPaints = JSON.parse(localStorage.getItem("apex.garage_paints") || "{}");
+        const paintId = savedPaints[id];
+        if (paintId && paintId !== "factory") {
+          const cp = CUSTOM_PAINTS.find((p) => p.id === paintId);
+          if (cp) car = { ...car, base: cp.base, dark: cp.dark, light: cp.light, accent: cp.accent };
+        }
+      } catch {}
+    }
     if (car) {
       engineRef.current?.setCar(car);
       engineRef.current?.setUpgrades(career.upgrades[id] || DEFAULT_UPGRADES);
     }
   };
 
-  const activeCarDef = CARS.find((c) => c.id === carId) || CARS[0];
+  const activeCarDef = useMemo(() => {
+    const raw = CARS.find((c) => c.id === carId) || CARS[0];
+    try {
+      const savedPaints = JSON.parse(localStorage.getItem("apex.garage_paints") || "{}");
+      const paintId = savedPaints[raw.id];
+      if (paintId && paintId !== "factory") {
+        const cp = CUSTOM_PAINTS.find((p) => p.id === paintId);
+        if (cp) {
+          return { ...raw, base: cp.base, dark: cp.dark, light: cp.light, accent: cp.accent };
+        }
+      }
+    } catch {}
+    return raw;
+  }, [carId]);
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-night-900">
@@ -544,7 +576,7 @@ export default function App() {
             <GarageTuning
               career={career}
               activeCar={activeCarDef}
-              onSelectCar={(c) => selectCar(c.id)}
+              onSelectCar={(c) => selectCar(c.id, c)}
               onUpgradeCar={handleUpgradeCar}
               onBack={() => setMenuTab("quick")}
             />
