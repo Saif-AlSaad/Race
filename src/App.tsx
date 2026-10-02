@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CARS, STORAGE_BEST, STORAGE_CAR, STORAGE_WEATHER, STORAGE_SETTINGS,
-  TOTAL_LAPS, formatTime, type WeatherMode, type GameSettings, DEFAULT_SETTINGS,
+  STORAGE_CAREER, STORAGE_DIFFICULTY, TOTAL_LAPS, formatTime, type WeatherMode,
+  type GameSettings, DEFAULT_SETTINGS, type CareerProgress, INITIAL_CAREER_PROGRESS,
+  type DifficultyLevel, DIFFICULTIES, type CareerEvent, CAREER_TIERS, type CarUpgrades,
+  DEFAULT_UPGRADES,
 } from "./game/constants";
 import { RaceEngine, type RaceResult } from "./game/engine";
 import { getAudio } from "./game/audio";
@@ -9,13 +12,16 @@ import { useInput } from "./hooks/useInput";
 import Menu from "./components/Menu";
 import HUD from "./components/HUD";
 import Countdown from "./components/Countdown";
-import Results from "./components/Results";
+import Results, { type RacePayout } from "./components/Results";
 import TouchControls from "./components/TouchControls";
 import SettingsModal from "./components/SettingsModal";
+import CareerHub from "./components/CareerHub";
+import GarageTuning from "./components/GarageTuning";
 import { ChevronLeft, Pause, Play, RotateCcw, Volume2, VolumeX, Sliders } from "lucide-react";
 import { cn } from "./utils/cn";
 
 type Phase = "menu" | "countdown" | "racing" | "paused" | "finished";
+type MenuTab = "quick" | "career" | "garage";
 
 interface Toast {
   id: number;
@@ -32,10 +38,37 @@ export default function App() {
   const phaseRef = useRef<Phase>("menu");
   phaseRef.current = phase;
 
+  const [menuTab, setMenuTab] = useState<MenuTab>("quick");
+
   const [carId, setCarId] = useState<string>(() => localStorage.getItem(STORAGE_CAR) ?? CARS[0].id);
   const [weather, setWeatherState] = useState<WeatherMode>(
     () => (localStorage.getItem(STORAGE_WEATHER) as WeatherMode) ?? "night",
   );
+
+  const [difficulty, setDifficultyState] = useState<DifficultyLevel>(() => {
+    const saved = localStorage.getItem(STORAGE_DIFFICULTY) as DifficultyLevel;
+    if (saved && (saved === "amateur" || saved === "pro" || saved === "legend")) return saved;
+    return "pro";
+  });
+
+  const [career, setCareer] = useState<CareerProgress>(() => {
+    const saved = localStorage.getItem(STORAGE_CAREER);
+    if (saved) {
+      try {
+        return { ...INITIAL_CAREER_PROGRESS, ...JSON.parse(saved) };
+      } catch {
+        // ignore
+      }
+    }
+    return INITIAL_CAREER_PROGRESS;
+  });
+
+  const [activeCareerEvent, setActiveCareerEvent] = useState<CareerEvent | null>(null);
+  const activeCareerEventRef = useRef<CareerEvent | null>(null);
+  activeCareerEventRef.current = activeCareerEvent;
+
+  const [payout, setPayout] = useState<RacePayout | null>(null);
+
   const [settings, setSettings] = useState<GameSettings>(() => {
     const saved = localStorage.getItem(STORAGE_SETTINGS);
     if (saved) {
@@ -85,8 +118,12 @@ export default function App() {
     const eng = new RaceEngine(canvas, audio, weather, settings);
     const car = CARS.find((c) => c.id === (localStorage.getItem(STORAGE_CAR) ?? CARS[0].id)) ?? CARS[0];
     eng.setCar(car);
+    eng.setDifficulty(difficulty);
+    eng.setUpgrades(career.upgrades[car.id] || DEFAULT_UPGRADES);
+
     eng.onLap = (lap, lapMs) => {
-      if (lap === TOTAL_LAPS) pushToast("FINAL LAP", formatTime(lapMs), "amber");
+      const lapsTotal = activeCareerEventRef.current ? activeCareerEventRef.current.laps : TOTAL_LAPS;
+      if (lap === lapsTotal) pushToast("FINAL LAP", formatTime(lapMs), "amber");
       else pushToast(`LAP ${lap}`, formatTime(lapMs), "amber");
     };
     eng.onOvertake = (pos, gained) => {
@@ -106,8 +143,54 @@ export default function App() {
           return prev;
         });
       }
+
+      // Calculate Payout & Stars
+      const diffMult = DIFFICULTIES[r.difficulty || difficulty]?.cashMult ?? 1.0;
+      const ev = activeCareerEventRef.current;
+      const basePurse = ev ? ev.basePurse : 3500;
+
+      // Position factors
+      const posMults = [1.0, 0.75, 0.55, 0.35, 0.25, 0.15, 0.1, 0.05];
+      const posMult = posMults[Math.min(r.position - 1, posMults.length - 1)] ?? 0.1;
+      const cleanBonus = r.cleanRace ? Math.round(basePurse * 0.25) : 0;
+      const totalPurse = Math.round((basePurse * posMult + cleanBonus) * diffMult);
+
+      // Stars
+      const starsEarned = r.position === 1 ? 3 : r.position <= 3 ? 2 : r.position <= 5 ? 1 : 0;
+
+      const calculatedPayout: RacePayout = {
+        basePurse: Math.round(basePurse * posMult),
+        cleanBonus,
+        difficultyMult: diffMult,
+        totalPurse,
+        starsEarned,
+      };
+      setPayout(calculatedPayout);
+
+      // Update Career Progress
+      setCareer((prev) => {
+        const updatedCredits = prev.credits + totalPurse;
+        const updatedStars = { ...prev.stars };
+        const updatedPositions = { ...prev.bestPositions };
+
+        if (ev) {
+          updatedStars[ev.id] = Math.max(updatedStars[ev.id] || 0, starsEarned);
+          updatedPositions[ev.id] = Math.min(updatedPositions[ev.id] || 99, r.position);
+        }
+
+        const updated: CareerProgress = {
+          ...prev,
+          credits: updatedCredits,
+          stars: updatedStars,
+          bestPositions: updatedPositions,
+        };
+        localStorage.setItem(STORAGE_CAREER, JSON.stringify(updated));
+        return updated;
+      });
+
       setPhase("finished");
     };
+
     engineRef.current = eng;
     setEngine(eng);
     return () => {
@@ -124,17 +207,35 @@ export default function App() {
   useEffect(() => clearTimers, []);
 
   // ---- race flow ----
-  const startRace = useCallback(() => {
+  const startRace = useCallback((event?: CareerEvent) => {
     const eng = engineRef.current;
     if (!eng) return;
     const audio = getAudio();
     audio.ensure();
     clearTimers();
+
     const car = CARS.find((c) => c.id === carId) ?? CARS[0];
     eng.setCar(car);
+    eng.setDifficulty(difficulty);
+    eng.setUpgrades(career.upgrades[car.id] || DEFAULT_UPGRADES);
+
+    if (event) {
+      setActiveCareerEvent(event);
+      activeCareerEventRef.current = event;
+      eng.setTotalLaps(event.laps);
+      eng.setWeather(event.weather);
+      setWeatherState(event.weather);
+    } else {
+      setActiveCareerEvent(null);
+      activeCareerEventRef.current = null;
+      eng.setTotalLaps(TOTAL_LAPS);
+      eng.setWeather(weather);
+    }
+
     eng.startGrid();
     setIsRecord(false);
     setResult(null);
+    setPayout(null);
     setPhase("countdown");
     setCountdownN(3);
     audio.beep(392, 0.16);
@@ -152,13 +253,14 @@ export default function App() {
         timers.current.push(window.setTimeout(() => setCountdownN(null), 800));
       }, 3000),
     );
-  }, [carId, pushToast]);
+  }, [carId, difficulty, career.upgrades, weather, pushToast]);
 
   const goMenu = useCallback(() => {
     clearTimers();
     setCountdownN(null);
     engineRef.current?.toAttract();
     setResult(null);
+    setPayout(null);
     setPhase("menu");
   }, []);
 
@@ -199,6 +301,34 @@ export default function App() {
     });
   }, [pushToast]);
 
+  const handleSelectDifficulty = useCallback((d: DifficultyLevel) => {
+    setDifficultyState(d);
+    localStorage.setItem(STORAGE_DIFFICULTY, d);
+    engineRef.current?.setDifficulty(d);
+  }, []);
+
+  const handleUpgradeCar = useCallback((targetCarId: string, category: keyof CarUpgrades, stage: number, cost: number) => {
+    setCareer((prev) => {
+      if (prev.credits < cost) return prev;
+      const currentCarUpgrades = prev.upgrades[targetCarId] || DEFAULT_UPGRADES;
+      const updatedUpgrades = { ...currentCarUpgrades, [category]: stage };
+      const updated: CareerProgress = {
+        ...prev,
+        credits: prev.credits - cost,
+        upgrades: {
+          ...prev.upgrades,
+          [targetCarId]: updatedUpgrades,
+        },
+      };
+      localStorage.setItem(STORAGE_CAREER, JSON.stringify(updated));
+      if (targetCarId === carId) {
+        engineRef.current?.setUpgrades(updatedUpgrades);
+      }
+      return updated;
+    });
+    pushToast("TUNING INSTALLED", "Car performance upgraded", "amber");
+  }, [carId, pushToast]);
+
   const handleUpdateSettings = useCallback((newSettings: GameSettings) => {
     setSettings(newSettings);
     localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(newSettings));
@@ -214,6 +344,24 @@ export default function App() {
     setBestLap(null);
     pushToast("RECORD RESET", "Personal best cleared", "sky");
   }, [pushToast]);
+
+  const handleNextCareerEvent = useCallback(() => {
+    if (!activeCareerEvent) {
+      setPhase("menu");
+      setMenuTab("career");
+      return;
+    }
+    // Find all events flattened
+    const allEvents = CAREER_TIERS.flatMap((t) => t.events);
+    const currIndex = allEvents.findIndex((e) => e.id === activeCareerEvent.id);
+    const nextEvent = allEvents[currIndex + 1];
+    if (nextEvent) {
+      startRace(nextEvent);
+    } else {
+      setPhase("menu");
+      setMenuTab("career");
+    }
+  }, [activeCareerEvent, startRace]);
 
   useInput(
     () => engineRef.current,
@@ -250,8 +398,13 @@ export default function App() {
     setCarId(id);
     localStorage.setItem(STORAGE_CAR, id);
     const car = CARS.find((c) => c.id === id);
-    if (car) engineRef.current?.setCar(car);
+    if (car) {
+      engineRef.current?.setCar(car);
+      engineRef.current?.setUpgrades(career.upgrades[id] || DEFAULT_UPGRADES);
+    }
   };
+
+  const activeCarDef = CARS.find((c) => c.id === carId) || CARS[0];
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-night-900">
@@ -264,7 +417,7 @@ export default function App() {
       {weather === "rain" && <div className="pointer-events-none absolute inset-0 z-[5] rain-overlay" />}
       <div className="pointer-events-none absolute inset-0 z-[5] vignette" />
 
-      {/* in-race chrome */}
+      {/* in-race telemetry HUD */}
       {engine && (phase === "racing" || phase === "paused" || phase === "countdown") && (
         <HUD engine={engine} onCycleWeather={cycleWeather} />
       )}
@@ -309,7 +462,7 @@ export default function App() {
       {phase === "countdown" && countdownN !== null && <Countdown n={countdownN} />}
       {phase === "racing" && countdownN === 0 && <Countdown n={0} />}
 
-      {/* pause */}
+      {/* pause modal */}
       {phase === "paused" && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-night-900/55 backdrop-blur-[3px]">
           <div className="animate-fade-up flex w-full max-w-xs flex-col items-stretch gap-2 p-4">
@@ -325,7 +478,7 @@ export default function App() {
             <PauseBtn onClick={() => setSettingsOpen(true)}>
               <Sliders className="h-4 w-4" /> SETTINGS
             </PauseBtn>
-            <PauseBtn onClick={startRace}>
+            <PauseBtn onClick={() => startRace(activeCareerEvent || undefined)}>
               <RotateCcw className="h-4 w-4" /> RESTART RACE
             </PauseBtn>
             <PauseBtn onClick={goMenu}>
@@ -335,26 +488,68 @@ export default function App() {
         </div>
       )}
 
-      {/* results */}
+      {/* results screen */}
       {phase === "finished" && result && (
-        <Results result={result} isRecord={isRecord} onRestart={startRace} onMenu={goMenu} />
+        <Results
+          result={result}
+          isRecord={isRecord}
+          careerEvent={activeCareerEvent}
+          payout={payout}
+          onRestart={() => startRace(activeCareerEvent || undefined)}
+          onMenu={goMenu}
+          onOpenGarage={() => {
+            setPhase("menu");
+            setMenuTab("garage");
+          }}
+          onNextCareerEvent={activeCareerEvent ? handleNextCareerEvent : undefined}
+        />
       )}
 
-      {/* menu */}
+      {/* menu phase */}
       {phase === "menu" && (
-        <Menu
-          carId={carId}
-          onSelectCar={selectCar}
-          weather={weather}
-          onSelectWeather={selectWeather}
-          onStart={startRace}
-          onOpenSettings={() => setSettingsOpen(true)}
-          bestLap={bestLap}
-          muted={muted}
-          onToggleMute={toggleMute}
-          musicOn={musicOn}
-          onToggleMusic={toggleMusic}
-        />
+        <>
+          {menuTab === "quick" && (
+            <Menu
+              carId={carId}
+              onSelectCar={selectCar}
+              weather={weather}
+              onSelectWeather={selectWeather}
+              onStart={() => startRace()}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenCareer={() => setMenuTab("career")}
+              onOpenGarage={() => setMenuTab("garage")}
+              career={career}
+              difficulty={difficulty}
+              onSelectDifficulty={handleSelectDifficulty}
+              bestLap={bestLap}
+              muted={muted}
+              onToggleMute={toggleMute}
+              musicOn={musicOn}
+              onToggleMusic={toggleMusic}
+            />
+          )}
+
+          {menuTab === "career" && (
+            <CareerHub
+              career={career}
+              selectedDifficulty={difficulty}
+              onSelectDifficulty={handleSelectDifficulty}
+              onStartEvent={(ev) => startRace(ev)}
+              onOpenGarage={() => setMenuTab("garage")}
+              onBack={() => setMenuTab("quick")}
+            />
+          )}
+
+          {menuTab === "garage" && (
+            <GarageTuning
+              career={career}
+              activeCar={activeCarDef}
+              onSelectCar={(c) => selectCar(c.id)}
+              onUpgradeCar={handleUpgradeCar}
+              onBack={() => setMenuTab("quick")}
+            />
+          )}
+        </>
       )}
 
       {/* settings modal */}

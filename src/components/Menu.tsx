@@ -3,7 +3,10 @@ import {
   Flag, Gauge, Play, Timer, Trophy, Volume2, VolumeX, Wind, Zap,
   Music, Sun, Moon, CloudRain, Settings, Sparkles
 } from "lucide-react";
-import { CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime, type WeatherMode } from "../game/constants";
+import {
+  CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime, type WeatherMode,
+  type DifficultyLevel, DIFFICULTIES, type CareerProgress, DEFAULT_UPGRADES
+} from "../game/constants";
 import { carPreview } from "../game/sprites";
 import { cn } from "../utils/cn";
 
@@ -14,6 +17,11 @@ interface MenuProps {
   onSelectWeather: (w: WeatherMode) => void;
   onStart: () => void;
   onOpenSettings: () => void;
+  onOpenCareer: () => void;
+  onOpenGarage: () => void;
+  career: CareerProgress;
+  difficulty: DifficultyLevel;
+  onSelectDifficulty: (d: DifficultyLevel) => void;
   bestLap: number | null;
   muted: boolean;
   onToggleMute: () => void;
@@ -28,6 +36,11 @@ export default function Menu({
   onSelectWeather,
   onStart,
   onOpenSettings,
+  onOpenCareer,
+  onOpenGarage,
+  career,
+  difficulty,
+  onSelectDifficulty,
   bestLap,
   muted,
   onToggleMute,
@@ -38,6 +51,7 @@ export default function Menu({
 
   const atmoName = weather === "night" ? "NEON MIDNIGHT" : weather === "rain" ? "CYBER STORM" : "GOLDEN HOUR";
   const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — NITRO SPEED BOOST — DRIFT TO CHARGE`;
+  const totalStars = Object.values(career.stars).reduce((a, b) => a + b, 0);
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col justify-between overflow-hidden">
@@ -46,7 +60,7 @@ export default function Menu({
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-96 bg-gradient-to-t from-night-950/95 via-night-900/60 to-transparent" />
 
       {/* Top Header */}
-      <header className="relative z-10 flex items-center justify-between px-6 pt-5 sm:px-10 animate-fade-up">
+      <header className="relative z-10 flex flex-wrap items-center justify-between gap-3 px-6 pt-5 sm:px-10 animate-fade-up">
         <div className="flex items-center gap-3">
           <div className="grid h-9 w-9 place-items-center border border-ember-400/40 bg-night-900/80 backdrop-blur-md">
             <Flag className="h-4 w-4 text-ember-400" />
@@ -57,7 +71,42 @@ export default function Menu({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Central Mode Switcher Tabs */}
+        <div className="flex items-center gap-1 rounded-lg border border-white/15 bg-black/60 p-1 backdrop-blur-md shadow-2xl">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded bg-ember-500/20 border border-ember-400/80 px-3.5 py-1 text-xs font-display font-black tracking-wider text-ember-300 shadow-[0_0_12px_rgba(255,158,61,0.3)]"
+          >
+            <Zap className="h-3.5 w-3.5 fill-ember-400 text-ember-400" /> QUICK RACE
+          </button>
+          <button
+            type="button"
+            onClick={onOpenCareer}
+            className="flex items-center gap-1.5 rounded px-3.5 py-1 text-xs font-display font-bold tracking-wider text-white/60 hover:text-white hover:bg-white/10 transition-all"
+          >
+            <Trophy className="h-3.5 w-3.5 text-amber-400" /> CAREER
+          </button>
+          <button
+            type="button"
+            onClick={onOpenGarage}
+            className="flex items-center gap-1.5 rounded px-3.5 py-1 text-xs font-display font-bold tracking-wider text-white/60 hover:text-white hover:bg-white/10 transition-all"
+          >
+            <Gauge className="h-3.5 w-3.5 text-sky-400" /> GARAGE
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          {/* Wallet and Star count */}
+          <div className="hidden sm:flex items-center gap-3 border border-white/15 bg-night-900/80 px-3 py-1 text-xs font-mono backdrop-blur-md rounded">
+            <span className="text-amber-400 font-bold flex items-center gap-1">
+              ★ {totalStars}
+            </span>
+            <span className="text-white/20">|</span>
+            <span className="text-emerald-400 font-bold">
+              ${career.credits.toLocaleString()}
+            </span>
+          </div>
+
           {/* Settings Button */}
           <button
             onClick={onOpenSettings}
@@ -178,6 +227,38 @@ export default function Menu({
             </div>
           </div>
 
+          {/* Difficulty Preset Pill Selector */}
+          <div className="flex items-center gap-2">
+            <span className="font-display text-[10px] tracking-[0.3em] text-white/50">DIFFICULTY:</span>
+            <div className="inline-flex border border-white/15 bg-night-950/80 p-0.5 backdrop-blur-md shadow-lg">
+              {(["amateur", "pro", "legend"] as DifficultyLevel[]).map((d) => {
+                const cfg = DIFFICULTIES[d];
+                const active = difficulty === d;
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => onSelectDifficulty(d)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.16em] transition-all",
+                      active
+                        ? d === "legend"
+                          ? "bg-rose-500 font-bold text-white shadow-[0_0_16px_#f43f5e]"
+                          : d === "pro"
+                          ? "bg-ember-500 font-bold text-night-900 shadow-[0_0_16px_#ff9e3d]"
+                          : "bg-emerald-500 font-bold text-night-900 shadow-[0_0_16px_#10b981]"
+                        : "text-white/60 hover:bg-white/5 hover:text-white"
+                    )}
+                    title={cfg.desc}
+                  >
+                    {cfg.label}
+                    <span className="font-mono text-[9px] opacity-75">{cfg.cashMult}X</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {bestLap !== null && (
             <div className="flex items-center gap-2 border border-ember-400/30 bg-night-950/70 px-3 py-1 text-[11px] font-semibold tracking-widest text-ember-300 backdrop-blur-md">
               <Trophy className="h-3.5 w-3.5" />
@@ -191,6 +272,10 @@ export default function Menu({
           {CARS.map((car, i) => {
             const active = car.id === carId;
             const preview = previews.find((p) => p.id === car.id)?.url;
+            const upgrades = career.upgrades[car.id] || DEFAULT_UPGRADES;
+            const totalStages = Object.values(upgrades).reduce((a, b) => a + b, 0);
+            const tunedBhp = car.bhp + (upgrades.engine || 0) * 28;
+
             return (
               <button
                 key={car.id}
@@ -217,23 +302,35 @@ export default function Menu({
                     />
                   )}
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-night-900/90 via-transparent to-transparent" />
-                  <div
-                    className={cn(
-                      "absolute left-3 top-2.5 px-2 py-0.5 text-[9px] font-bold tracking-[0.2em] border",
-                      active
-                        ? "border-ember-400 bg-ember-500 text-night-900 shadow-[0_0_12px_rgba(255,158,61,0.5)]"
-                        : "border-white/15 bg-night-900/80 text-white/60"
+                  <div className="absolute left-3 top-2.5 flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "px-2 py-0.5 text-[9px] font-bold tracking-[0.2em] border",
+                        active
+                          ? "border-ember-400 bg-ember-500 text-night-900 shadow-[0_0_12px_rgba(255,158,61,0.5)]"
+                          : "border-white/15 bg-night-900/80 text-white/60"
+                      )}
+                    >
+                      {car.cls}
+                    </span>
+                    {totalStages > 0 && (
+                      <span className="px-1.5 py-0.5 text-[8px] font-mono font-bold bg-amber-400/20 border border-amber-400/50 text-amber-300">
+                        STAGE {totalStages}
+                      </span>
                     )}
-                  >
-                    {car.cls}
                   </div>
                 </div>
 
                 {/* Specs and details */}
                 <div className="space-y-2 p-3.5 bg-gradient-to-b from-transparent to-night-950/70">
                   <div className="flex items-baseline justify-between">
-                    <div className={cn("font-display text-lg italic tracking-wide", active ? "text-ember-300" : "text-white/90")}>
-                      {car.name}
+                    <div>
+                      <div className={cn("font-display text-lg italic tracking-wide", active ? "text-ember-300" : "text-white/90")}>
+                        {car.name}
+                      </div>
+                      <div className="text-[10px] font-mono text-white/40">
+                        {tunedBhp} BHP {upgrades.engine > 0 && <span className="text-emerald-400">+{upgrades.engine * 28}</span>} // {car.weightKg} KG
+                      </div>
                     </div>
                     {active && (
                       <span className="font-display text-[9px] tracking-widest text-ember-400 font-bold animate-pulse">
@@ -241,9 +338,24 @@ export default function Menu({
                       </span>
                     )}
                   </div>
-                  <Stat icon={<Gauge className="h-3 w-3" />} label="TOP" value={car.statTop} active={active} />
-                  <Stat icon={<Zap className="h-3 w-3" />} label="ACC" value={car.statAcc} active={active} />
-                  <Stat icon={<Wind className="h-3 w-3" />} label="GRIP" value={car.statGrip} active={active} />
+                  <Stat
+                    icon={<Gauge className="h-3 w-3" />}
+                    label="TOP"
+                    value={Math.min(1, car.statTop + (upgrades.engine || 0) * 0.05)}
+                    active={active}
+                  />
+                  <Stat
+                    icon={<Zap className="h-3 w-3" />}
+                    label="ACC"
+                    value={Math.min(1, car.statAcc + (upgrades.trans || 0) * 0.05)}
+                    active={active}
+                  />
+                  <Stat
+                    icon={<Wind className="h-3 w-3" />}
+                    label="GRIP"
+                    value={Math.min(1, car.statGrip + (upgrades.tires || 0) * 0.05)}
+                    active={active}
+                  />
                 </div>
               </button>
             );

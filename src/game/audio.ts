@@ -199,6 +199,36 @@ export class AudioEngine {
     notes.forEach((f, i) => this.beep(f, 0.22, i * 0.14));
   }
 
+  cash(repeat = 1) {
+    if (!this.ctx || !this.sfx || this.muted) return;
+    const notes = [987.77, 1318.51, 1567.98];
+    for (let r = 0; r < repeat; r++) {
+      notes.forEach((f, i) => {
+        this.beep(f, 0.08, r * 0.18 + i * 0.05);
+      });
+    }
+  }
+
+  upgrade() {
+    if (!this.ctx || !this.sfx || this.muted) return;
+    const t0 = this.ctx.currentTime;
+    // Mechanical ratchet clicks + triumphant synth blip
+    for (let i = 0; i < 3; i++) {
+      const o = this.ctx.createOscillator();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(320 + i * 160, t0 + i * 0.04);
+      o.frequency.exponentialRampToValueAtTime(80, t0 + i * 0.04 + 0.03);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.18, t0 + i * 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + i * 0.04 + 0.03);
+      o.connect(g);
+      g.connect(this.sfx);
+      o.start(t0 + i * 0.04);
+      o.stop(t0 + i * 0.04 + 0.04);
+    }
+    this.beep(880, 0.18, 0.15);
+  }
+
   setMuted(m: boolean) {
     this.muted = m;
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.03);

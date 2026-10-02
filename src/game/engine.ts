@@ -10,6 +10,7 @@ import {
   BASE_MAX_SPEED, BASE_ACCEL, BRAKE_FORCE, COAST_DECEL, OFFROAD_DECEL,
   OFFROAD_LIMIT, BOOST_TOP_MULT, BOOST_ACCEL_MULT, RIVALS, SCENES, CARS,
   type CarDef, type WeatherMode, type GameSettings, DEFAULT_SETTINGS,
+  type DifficultyLevel, DIFFICULTIES, type CarUpgrades, DEFAULT_UPGRADES,
 } from "./constants";
 import { buildTrack, type TrackData, type Segment, type SpritePlacement } from "./track";
 import {
@@ -36,6 +37,8 @@ export interface RaceResult {
   bestLap: number;
   laps: number[];
   standings: Standing[];
+  cleanRace: boolean;
+  difficulty: DifficultyLevel;
 }
 
 export interface HudState {
@@ -60,6 +63,10 @@ export interface HudState {
   bestLap: number;
   gapAhead: string | null;
   finished: boolean;
+  lateralG: number;
+  shiftLights: number;
+  cleanRace: boolean;
+  difficulty: DifficultyLevel;
 }
 
 interface Opponent {
@@ -140,6 +147,13 @@ export class RaceEngine {
   private raceTimeFrozen = 0;
   private opponents: Opponent[] = [];
   private particles: Particle[] = [];
+
+  // Career, difficulty & tuning
+  private difficulty: DifficultyLevel = "pro";
+  private upgrades: CarUpgrades = { ...DEFAULT_UPGRADES };
+  private totalLaps: number = TOTAL_LAPS;
+  private lateralG: number = 0;
+  private cleanRace: boolean = true;
 
   // settings & custom options
   private settings: GameSettings = DEFAULT_SETTINGS;
@@ -248,6 +262,26 @@ export class RaceEngine {
     this.car = def;
   }
 
+  getDifficulty(): DifficultyLevel {
+    return this.difficulty;
+  }
+
+  setDifficulty(d: DifficultyLevel) {
+    this.difficulty = d;
+    const diffMult = DIFFICULTIES[d]?.aiSpeedMult ?? 1.0;
+    this.opponents.forEach((o) => {
+      o.cruise = BASE_MAX_SPEED * (0.9 + Math.random() * 0.055) * diffMult;
+    });
+  }
+
+  setUpgrades(u: CarUpgrades) {
+    this.upgrades = { ...u };
+  }
+
+  setTotalLaps(laps: number) {
+    this.totalLaps = Math.max(1, laps);
+  }
+
   toAttract() {
     this.reset();
     this.mode = "attract";
@@ -299,12 +333,23 @@ export class RaceEngine {
   }
 
   hud(): HudState {
-    const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed;
+    const engineMult = 1 + (this.upgrades.engine || 0) * 0.035;
+    const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed * engineMult;
     const gearTop = maxSpeed / 6;
     const gear = clamp(1 + Math.floor(this.speed / gearTop), 1, 6);
     const rpm = clamp((this.speed % gearTop) / gearTop, 0, 1);
     const speedMult = this.settings.speedUnit === "kmh" ? 1.60934 : 1.0;
     const speedVal = Math.round(this.speed * MPH_SCALE * speedMult);
+
+    let shiftLights = 0;
+    if (rpm > 0.97) shiftLights = 7;
+    else if (rpm > 0.92) shiftLights = 6;
+    else if (rpm > 0.85) shiftLights = 5;
+    else if (rpm > 0.77) shiftLights = 4;
+    else if (rpm > 0.65) shiftLights = 3;
+    else if (rpm > 0.50) shiftLights = 2;
+    else if (rpm > 0.35) shiftLights = 1;
+
     return {
       mode: this.mode,
       weather: this.weather,
@@ -316,8 +361,8 @@ export class RaceEngine {
       boosting: this.boostNow,
       drifting: this.driftNow,
       offroad: this.offroadNow,
-      lap: Math.min(this.lap, TOTAL_LAPS),
-      totalLaps: TOTAL_LAPS,
+      lap: Math.min(this.lap, this.totalLaps),
+      totalLaps: this.totalLaps,
       lapProgress: (this.playerTotal % this.track.length) / this.track.length,
       position: this.positionNow,
       racers: this.opponents.length + 1,
@@ -327,6 +372,10 @@ export class RaceEngine {
       bestLap: this.bestLap * 1000,
       gapAhead: this.gapAhead(),
       finished: this.finished,
+      lateralG: Number(this.lateralG.toFixed(2)),
+      shiftLights,
+      cleanRace: this.cleanRace,
+      difficulty: this.difficulty,
     };
   }
 
@@ -370,11 +419,14 @@ export class RaceEngine {
     this.lapTimes = [];
     this.finished = false;
     this.positionNow = 8;
+    this.cleanRace = true;
+    this.lateralG = 0;
     this.particles = [];
     this.spawnGrid(false);
   }
 
   private spawnGrid(attract: boolean) {
+    const diffMult = DIFFICULTIES[this.difficulty]?.aiSpeedMult ?? 1.0;
     this.opponents = RIVALS.map((r, i) => ({
       name: r.name,
       paint: { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent },
@@ -382,7 +434,7 @@ export class RaceEngine {
       total: attract ? 3000 + i * 2600 : 620 + i * 430 + (i % 2) * 160,
       offset: (i % 2 === 0 ? 0.55 : -0.55) + (Math.random() - 0.5) * 0.2,
       speed: 0,
-      cruise: BASE_MAX_SPEED * (0.9 + Math.random() * 0.055),
+      cruise: BASE_MAX_SPEED * (0.9 + Math.random() * 0.055) * diffMult,
       wob: Math.random() * 100,
       sprite: carSprite(
         { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent },
@@ -442,18 +494,29 @@ export class RaceEngine {
       c.up = true;
     }
     this.ctlCached = c;
-    const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed * (this.mode === "attract" ? 0.96 : 1);
+    const engineMult = 1 + (this.upgrades.engine || 0) * 0.035;
+    const transMult = 1 + (this.upgrades.trans || 0) * 0.045;
+    const gripMult = 1 + (this.upgrades.tires || 0) * 0.05;
+    const maxBoostCap = 100 + (this.upgrades.nitro || 0) * 15;
+
+    const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed * engineMult * (this.mode === "attract" ? 0.96 : 1);
     const speedPct = clamp(this.speed / maxSpeed, 0, 1);
     const playerSeg = this.findSegment(this.position + this.playerZ);
 
     // ---- steering ----
     const sens = this.settings.steeringSensitivity || 1.0;
-    const dx = dt * 2.3 * speedPct * (0.7 + this.car.grip * 0.42) * sens;
+    const dx = dt * 2.3 * speedPct * (0.7 + this.car.grip * gripMult * 0.42) * sens;
     let steer = 0;
     if (c.left) { this.playerX -= dx; steer = -1; }
     if (c.right) { this.playerX += dx; steer = 1; }
     this.playerX -= dx * speedPct * playerSeg.curve * CENTRIFUGAL;
     this.steerVis = lerp(this.steerVis, steer, 1 - Math.exp(-dt * 9));
+
+    // ---- lateral G calculation for realistic telemetry ----
+    const curveG = Math.abs(playerSeg.curve) * speedPct * speedPct * 0.95;
+    const steerG = Math.abs(this.steerVis) * speedPct * (1.1 + this.car.grip * gripMult * 0.35);
+    const targetG = clamp(Math.max(curveG, steerG) * 1.35, 0, 1.85);
+    this.lateralG = lerp(this.lateralG, targetG, 1 - Math.exp(-dt * 6.5));
 
     // ---- drift ----
     this.driftNow = c.drift && Math.abs(steer) > 0 && speedPct > 0.42;
@@ -461,7 +524,7 @@ export class RaceEngine {
     // ---- throttle / brake ----
     this.boostNow = c.boost && this.boostMeter > 1 && this.speed > 2400;
     const topNow = maxSpeed * (this.boostNow ? BOOST_TOP_MULT : 1);
-    if (c.up) this.speed += BASE_ACCEL * this.car.accel * (this.boostNow ? BOOST_ACCEL_MULT : 1) * dt;
+    if (c.up) this.speed += BASE_ACCEL * this.car.accel * transMult * (this.boostNow ? BOOST_ACCEL_MULT : 1) * dt;
     else if (c.down) this.speed += BRAKE_FORCE * dt;
     else this.speed += COAST_DECEL * dt;
     if (this.driftNow) this.speed -= maxSpeed * 0.11 * dt;
@@ -479,7 +542,7 @@ export class RaceEngine {
 
     // ---- boost meter ----
     if (this.boostNow) this.boostMeter = Math.max(0, this.boostMeter - 30 * dt);
-    else this.boostMeter = Math.min(100, this.boostMeter + (this.driftNow ? 26 : this.offroadNow ? 1.5 : 7) * dt);
+    else this.boostMeter = Math.min(maxBoostCap, this.boostMeter + (this.driftNow ? 28 : this.offroadNow ? 1.5 : 8) * dt);
     this.fovBoost = lerp(this.fovBoost, this.boostNow ? 1 : 0, 1 - Math.exp(-dt * 4));
 
     // over-top-speed ease back
@@ -516,7 +579,7 @@ export class RaceEngine {
         this.lapTimes.push(lapMs);
         this.lapStart = this.raceElapsed;
         this.lap = newLap;
-        if (this.playerTotal >= TOTAL_LAPS * this.track.length) this.finishRace();
+        if (this.playerTotal >= this.totalLaps * this.track.length) this.finishRace();
         else this.onLap?.(newLap, lapMs, this.bestLap * 1000);
       }
       // standings + overtake toasts
@@ -635,6 +698,7 @@ export class RaceEngine {
 
   private crash(dir: number, strength: number) {
     this.collCooldown = 0.55;
+    this.cleanRace = false;
     this.shake = Math.min(1.2, 0.8 * strength + 0.3);
     this.speed = Math.max(this.speed * 0.72, 1200);
     this.playerX += dir * 0.1;
@@ -785,6 +849,8 @@ export class RaceEngine {
       bestLap: this.bestLap * 1000,
       laps: this.lapTimes,
       standings,
+      cleanRace: this.cleanRace,
+      difficulty: this.difficulty,
     });
   }
 
