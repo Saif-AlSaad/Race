@@ -80,7 +80,7 @@ interface Particle {
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-const percentRemaining = (n: number, total: number) => (n % total) / total;
+const percentRemaining = (n: number, total: number) => (((n % total) + total) % total) / total;
 const expFog = (d: number, density: number) => 1 / Math.exp(d * d * density);
 
 export class RaceEngine {
@@ -106,7 +106,7 @@ export class RaceEngine {
   private destroyed = false;
 
   // camera & player
-  private position = 0; // camera z (world units, monotonic)
+  private position = 0; // camera z along the track loop, wrapped in [0, track.length)
   private playerX = 0;
   private speed = 0;
   private steerVis = 0;
@@ -224,11 +224,11 @@ export class RaceEngine {
     const o = this.track.outline;
     const N = this.track.segments.length;
     const toPt = (z: number) => {
-      const idx = Math.floor(z / SEGMENT_LENGTH) % N;
+      const idx = ((Math.floor(z / SEGMENT_LENGTH) % N) + N) % N;
       return o[Math.floor(idx / 4) % o.length];
     };
     const dots = this.opponents.map((op) => ({ ...toPt(op.z), color: "#c8c2d8", player: false }));
-    dots.push({ ...toPt(this.playerTotal), color: "#ff9e3d", player: true });
+    dots.push({ ...toPt(this.position), color: "#ff9e3d", player: true });
     return { outline: o, dots };
   }
 
@@ -323,7 +323,7 @@ export class RaceEngine {
 
   private findSegment(z: number): Segment {
     const N = this.track.segments.length;
-    return this.track.segments[Math.floor(z / SEGMENT_LENGTH) % N];
+    return this.track.segments[((Math.floor(z / SEGMENT_LENGTH) % N) + N) % N];
   }
 
   private gapAhead(): string | null {
@@ -408,7 +408,7 @@ export class RaceEngine {
     this.speed = clamp(this.speed, 0, topNow * 1.06);
     this.playerX = clamp(this.playerX, -2.7, 2.7);
 
-    this.position += this.speed * dt;
+    this.position = ((this.position + this.speed * dt) % this.track.length + this.track.length) % this.track.length;
     this.playerTotal += this.speed * dt;
     this.collCooldown = Math.max(0, this.collCooldown - dt);
 
@@ -483,12 +483,15 @@ export class RaceEngine {
       }
       // avoidance
       let threatSpeed = Infinity;
+      const playerPos = (this.position + this.playerZ) % this.track.length;
       const blockers: { z: number; total: number; offset: number; speed: number }[] = [
-        { z: this.position + this.playerZ, total: this.playerTotal, offset: this.playerX, speed: this.speed },
+        { z: playerPos, total: this.playerTotal, offset: this.playerX, speed: this.speed },
         ...this.opponents.filter((q) => q !== o),
       ];
       for (const b of blockers) {
-        const rel = b.z - o.z;
+        let rel = b.z - o.z;
+        if (rel < -this.track.length / 2) rel += this.track.length;
+        else if (rel > this.track.length / 2) rel -= this.track.length;
         if (rel > 0 && rel < 760 && Math.abs(b.offset - o.offset) < 0.42) {
           threatSpeed = Math.min(threatSpeed, b.speed);
         }
@@ -501,7 +504,7 @@ export class RaceEngine {
       o.offset = lerp(o.offset, clamp(want, -0.85, 0.85), 1 - Math.exp(-dt * 1.1));
       let zSpeed = o.speed;
       if (this.mode === "countdown") zSpeed = 0;
-      o.z += zSpeed * dt;
+      o.z = ((o.z + zSpeed * dt) % this.track.length + this.track.length) % this.track.length;
       o.total += zSpeed * dt;
     }
   }
@@ -516,7 +519,9 @@ export class RaceEngine {
         if (!info || info.collide === 0) continue;
         // sprites are anchored at segment z; check precise z overlap for current player
         const spriteZ = seg.index * SEGMENT_LENGTH;
-        const relZ = spriteZ - (this.position + this.playerZ);
+        let relZ = spriteZ - (this.position + this.playerZ);
+        if (relZ < -this.track.length / 2) relZ += this.track.length;
+        else if (relZ > this.track.length / 2) relZ -= this.track.length;
         if (relZ < -SEGMENT_LENGTH * 0.5 || relZ > SEGMENT_LENGTH * 1.2) continue;
         if (Math.abs(this.playerX - s.offset) < info.collide + PLAYER_HALF_W) {
           this.crash(this.playerX < s.offset ? -1 : 1, 1);
@@ -529,7 +534,9 @@ export class RaceEngine {
   private collideCars() {
     if (this.collCooldown > 0) return;
     for (const o of this.opponents) {
-      const relZ = o.z - (this.position + this.playerZ);
+      let relZ = o.z - (this.position + this.playerZ);
+      if (relZ < -this.track.length / 2) relZ += this.track.length;
+      else if (relZ > this.track.length / 2) relZ -= this.track.length;
       if (Math.abs(relZ) < 300 && Math.abs(o.offset - this.playerX) < 0.36) {
         if (relZ > 0) {
           // rear-end the rival
@@ -699,7 +706,14 @@ export class RaceEngine {
       for (const s of seg.sprites) this.renderSprite(seg, s);
       // rivals anchored to this segment
       for (const o of this.opponents) {
-        if (Math.floor(o.z / SEGMENT_LENGTH) % N === seg.index) this.renderRival(seg, o);
+        if (Math.floor(o.z / SEGMENT_LENGTH) % N === seg.index) {
+          let relZ = o.z - this.position;
+          if (relZ < -this.track.length / 2) relZ += this.track.length;
+          else if (relZ > this.track.length / 2) relZ -= this.track.length;
+          if (relZ > 0 && relZ < DRAW_DISTANCE * SEGMENT_LENGTH) {
+            this.renderRival(seg, o);
+          }
+        }
       }
     }
 

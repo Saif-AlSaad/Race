@@ -161,37 +161,55 @@ export function buildTrack(): TrackData {
   segments[9].sprites.push({ kind: "lamp", variant: 0, offset: -1.35 });
   segments[9].sprites.push({ kind: "lamp", variant: 0, offset: 1.35 });
 
-  // ---- minimap outline (drift-corrected so the loop closes) ----
-  const pts: { x: number; y: number }[] = [];
-  let hx = 0, hy = 0, heading = 0;
+  // ---- minimap outline (smooth closed circuit layout) ----
+  const waypoints = [
+    { t: 0.00, x: 0.22, y: 0.82 }, // start/finish straight
+    { t: 0.10, x: 0.22, y: 0.35 }, // entering turn 1
+    { t: 0.18, x: 0.38, y: 0.18 }, // gentle right sweeper
+    { t: 0.28, x: 0.54, y: 0.28 }, // chicane 1
+    { t: 0.38, x: 0.64, y: 0.18 }, // chicane 2
+    { t: 0.50, x: 0.82, y: 0.24 }, // crest straight
+    { t: 0.62, x: 0.86, y: 0.54 }, // plunging sweep
+    { t: 0.72, x: 0.72, y: 0.68 }, // mid-infield curves
+    { t: 0.80, x: 0.84, y: 0.84 }, // hairpin approach
+    { t: 0.86, x: 0.78, y: 0.88 }, // hairpin apex
+    { t: 0.94, x: 0.45, y: 0.82 }, // run home
+    { t: 1.00, x: 0.22, y: 0.82 }, // closed loop
+  ];
+
+  function catmullRom(p0: number, p1: number, p2: number, p3: number, u: number) {
+    const u2 = u * u;
+    const u3 = u2 * u;
+    return 0.5 * (
+      (2 * p1) +
+      (-p0 + p2) * u +
+      (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 +
+      (-p0 + 3 * p1 - 3 * p2 + p3) * u3
+    );
+  }
+
+  const W = waypoints.length - 1;
+  const outline: { x: number; y: number }[] = [];
   for (let i = 0; i < N; i += 4) {
-    const seg = segments[i];
-    heading += seg.curve * 0.00045 * 4;
-    hx += Math.sin(heading);
-    hy -= Math.cos(heading);
-    pts.push({ x: hx, y: hy });
+    const t = i / N;
+    let segIdx = 0;
+    while (segIdx < W - 1 && waypoints[segIdx + 1].t < t) {
+      segIdx++;
+    }
+    const w0 = waypoints[segIdx];
+    const w1 = waypoints[segIdx + 1];
+    const u = (t - w0.t) / (w1.t - w0.t || 1);
+
+    const p0 = waypoints[(segIdx - 1 + W) % W];
+    const p1 = w0;
+    const p2 = w1;
+    const p3 = waypoints[(segIdx + 2) % W];
+
+    outline.push({
+      x: catmullRom(p0.x, p1.x, p2.x, p3.x, u),
+      y: catmullRom(p0.y, p1.y, p2.y, p3.y, u),
+    });
   }
-  // close the loop by subtracting linear drift
-  const dx = pts[pts.length - 1].x - pts[0].x;
-  const dy = pts[pts.length - 1].y - pts[0].y;
-  pts.forEach((p, i) => {
-    const t = i / (pts.length - 1);
-    p.x -= dx * t;
-    p.y -= dy * t;
-  });
-  // normalise to 0..1
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of pts) {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
-  }
-  const pad = 0.06;
-  const sx = (1 - pad * 2) / (maxX - minX || 1);
-  const sy = (1 - pad * 2) / (maxY - minY || 1);
-  const sc = Math.min(sx, sy);
-  const ox = pad + (1 - pad * 2 - (maxX - minX) * sc) / 2;
-  const oy = pad + (1 - pad * 2 - (maxY - minY) * sc) / 2;
-  const outline = pts.map((p) => ({ x: ox + (p.x - minX) * sc, y: oy + (p.y - minY) * sc }));
 
   return { segments, length: N * SEGMENT_LENGTH, outline };
 }
