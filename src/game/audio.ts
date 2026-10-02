@@ -271,6 +271,43 @@ export class AudioEngine {
     }
     this.step = (this.step + 1) % 16;
   }
+
+  thunder() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    try {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(55, t);
+      osc.frequency.exponentialRampToValueAtTime(24, t + 1.8);
+      g.gain.setValueAtTime(0.38, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.9);
+      osc.connect(g);
+      g.connect(this.sfx!);
+      osc.start(t);
+      osc.stop(t + 1.9);
+
+      if (this.noiseBuf) {
+        const src = this.ctx.createBufferSource();
+        const flt = this.ctx.createBiquadFilter();
+        const ng = this.ctx.createGain();
+        src.buffer = this.noiseBuf;
+        flt.type = "lowpass";
+        flt.frequency.setValueAtTime(360, t);
+        flt.frequency.linearRampToValueAtTime(80, t + 1.6);
+        ng.gain.setValueAtTime(0.42, t);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+        src.connect(flt);
+        flt.connect(ng);
+        ng.connect(this.sfx!);
+        src.start(t);
+        src.stop(t + 1.8);
+      }
+    } catch {
+      // ignore audio errors
+    }
+  }
 }
 
 // module-level singleton so it survives React StrictMode remounts

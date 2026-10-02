@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Flame, Gauge, Route, Zap } from "lucide-react";
+import { Flame, Gauge, Route, Zap, Sun, Moon, CloudRain } from "lucide-react";
 import type { RaceEngine, HudState } from "../game/engine";
 import { TRACK_NAME, formatTime, ordinal } from "../game/constants";
 import { cn } from "../utils/cn";
 
-export default function HUD({ engine }: { engine: RaceEngine }) {
+export default function HUD({
+  engine,
+  onCycleWeather,
+}: {
+  engine: RaceEngine;
+  onCycleWeather?: () => void;
+}) {
   const [hud, setHud] = useState<HudState>(() => engine.hud());
   const mapRef = useRef<HTMLCanvasElement>(null);
 
@@ -42,8 +48,8 @@ export default function HUD({ engine }: { engine: RaceEngine }) {
         </div>
       </div>
 
-      {/* ---- top center: lap ---- */}
-      <div className="absolute left-1/2 top-4 -translate-x-1/2 sm:top-6">
+      {/* ---- top center: lap & atmosphere ---- */}
+      <div className="absolute left-1/2 top-4 -translate-x-1/2 flex flex-col items-center gap-1 sm:top-6">
         <div className="panel px-5 py-2.5 text-center">
           <div className="font-display text-sm tracking-[0.3em] text-white/85">
             LAP <span className="text-ember-400">{hud.lap}</span>
@@ -56,6 +62,34 @@ export default function HUD({ engine }: { engine: RaceEngine }) {
             />
           </div>
         </div>
+        {onCycleWeather && (
+          <button
+            type="button"
+            onClick={onCycleWeather}
+            className="pointer-events-auto panel flex items-center gap-1.5 px-2.5 py-0.5 text-[9px] font-display tracking-[0.2em] transition-all hover:border-ember-400/60"
+            title="Click or press [V] to cycle Atmosphere"
+          >
+            {hud.weather === "sunset" && (
+              <>
+                <Sun className="h-2.5 w-2.5 text-amber-400" />
+                <span className="text-amber-200">GOLDEN HOUR</span>
+              </>
+            )}
+            {hud.weather === "night" && (
+              <>
+                <Moon className="h-2.5 w-2.5 text-cyan-400" />
+                <span className="text-cyan-300">NEON NIGHT</span>
+              </>
+            )}
+            {hud.weather === "rain" && (
+              <>
+                <CloudRain className="h-2.5 w-2.5 text-sky-400" />
+                <span className="text-sky-300">CYBER STORM</span>
+              </>
+            )}
+            <span className="ml-0.5 font-mono text-[8px] text-white/40">[V]</span>
+          </button>
+        )}
       </div>
 
       {/* ---- top right: times ---- */}

@@ -2,9 +2,15 @@ import { useEffect, useRef } from "react";
 import type { RaceEngine } from "../game/engine";
 
 /** Binds keyboard controls into the engine's input state. */
-export function useInput(getEngine: () => RaceEngine | null, onEscape: () => void) {
+export function useInput(
+  getEngine: () => RaceEngine | null,
+  onEscape: () => void,
+  onWeatherCycle?: () => void,
+) {
   const escRef = useRef(onEscape);
   escRef.current = onEscape;
+  const weatherRef = useRef(onWeatherCycle);
+  weatherRef.current = onWeatherCycle;
   const engineRefFn = useRef(getEngine);
   engineRefFn.current = getEngine;
 
@@ -31,6 +37,10 @@ export function useInput(getEngine: () => RaceEngine | null, onEscape: () => voi
     const down = (e: KeyboardEvent) => {
       if (e.code === "Escape" && e.type === "keydown") {
         escRef.current();
+        return;
+      }
+      if (e.code === "KeyV" && e.type === "keydown") {
+        weatherRef.current?.();
         return;
       }
       if (set(e.code, true)) e.preventDefault();

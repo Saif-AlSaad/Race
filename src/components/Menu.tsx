@@ -1,12 +1,14 @@
 import { useMemo } from "react";
-import { Flag, Gauge, Play, Timer, Trophy, Volume2, VolumeX, Wind, Zap, Music } from "lucide-react";
-import { CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime } from "../game/constants";
+import { Flag, Gauge, Play, Timer, Trophy, Volume2, VolumeX, Wind, Zap, Music, Sun, Moon, CloudRain } from "lucide-react";
+import { CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime, type WeatherMode } from "../game/constants";
 import { carPreview } from "../game/sprites";
 import { cn } from "../utils/cn";
 
 interface MenuProps {
   carId: string;
   onSelectCar: (id: string) => void;
+  weather: WeatherMode;
+  onSelectWeather: (w: WeatherMode) => void;
   onStart: () => void;
   bestLap: number | null;
   muted: boolean;
@@ -15,12 +17,22 @@ interface MenuProps {
   onToggleMusic: () => void;
 }
 
-const TICKER = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — GOLDEN HOUR — NITRO ENABLED — DRIFT TO CHARGE — `;
-
 export default function Menu({
-  carId, onSelectCar, onStart, bestLap, muted, onToggleMute, musicOn, onToggleMusic,
+  carId,
+  onSelectCar,
+  weather,
+  onSelectWeather,
+  onStart,
+  bestLap,
+  muted,
+  onToggleMute,
+  musicOn,
+  onToggleMusic,
 }: MenuProps) {
-  const previews = useMemo(() => CARS.map((c) => ({ id: c.id, url: carPreview(c) })), []);
+  const previews = useMemo(() => CARS.map((c) => ({ id: c.id, url: carPreview(c, weather) })), [weather]);
+
+  const atmoName = weather === "night" ? "NEON MIDNIGHT" : weather === "rain" ? "CYBER STORM" : "GOLDEN HOUR";
+  const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — NITRO ENABLED — DRIFT TO CHARGE — `;
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col overflow-hidden">
@@ -83,22 +95,71 @@ export default function Menu({
         {/* ticker */}
         <div className="animate-fade-up mt-3 w-full max-w-2xl overflow-hidden border-y border-ember-400/20 py-1.5" style={{ animationDelay: "0.2s" }}>
           <div className="flex w-max animate-marquee whitespace-nowrap text-[10px] font-semibold tracking-[0.35em] text-ember-200/70">
-            <span className="pr-4">{TICKER}</span>
-            <span className="pr-4">{TICKER}</span>
+            <span className="pr-4">{ticker}</span>
+            <span className="pr-4">{ticker}</span>
           </div>
         </div>
       </div>
 
-      {/* car select */}
+      {/* atmosphere & car select */}
       <div className="relative z-10 mt-auto px-4 pb-4 sm:px-10 sm:pb-8">
-        <div className="animate-fade-up mb-3 flex items-end justify-between" style={{ animationDelay: "0.28s" }}>
-          <div className="font-display text-xs tracking-[0.3em] text-white/70">SELECT MACHINE</div>
+        {/* Atmosphere Selector */}
+        <div className="animate-fade-up mb-3 flex flex-wrap items-center justify-between gap-2.5" style={{ animationDelay: "0.24s" }}>
+          <div className="flex items-center gap-2">
+            <span className="font-display text-[10px] tracking-[0.3em] text-white/50">ATMOSPHERE:</span>
+            <div className="flex items-center gap-1 border border-white/10 bg-night-900/60 p-0.5 backdrop-blur-sm">
+              <button
+                type="button"
+                onClick={() => onSelectWeather("sunset")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.18em] transition-all",
+                  weather === "sunset"
+                    ? "bg-gradient-to-r from-amber-600 to-amber-500 font-bold text-night-900 shadow-[0_0_15px_rgba(245,158,11,0.5)]"
+                    : "text-white/60 hover:bg-white/5 hover:text-white",
+                )}
+              >
+                <Sun className="h-3 w-3" />
+                GOLDEN HOUR
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectWeather("night")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.18em] transition-all",
+                  weather === "night"
+                    ? "bg-gradient-to-r from-cyan-500 to-fuchsia-600 font-bold text-white shadow-[0_0_20px_rgba(0,229,255,0.6)]"
+                    : "text-white/60 hover:bg-white/5 hover:text-white",
+                )}
+              >
+                <Moon className="h-3 w-3" />
+                NEON NIGHT
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectWeather("rain")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.18em] transition-all",
+                  weather === "rain"
+                    ? "bg-gradient-to-r from-blue-600 to-sky-400 font-bold text-white shadow-[0_0_20px_rgba(56,189,248,0.5)]"
+                    : "text-white/60 hover:bg-white/5 hover:text-white",
+                )}
+              >
+                <CloudRain className="h-3 w-3" />
+                CYBER STORM
+              </button>
+            </div>
+          </div>
           {bestLap !== null && (
             <div className="flex items-center gap-2 text-[11px] font-semibold tracking-widest text-ember-300">
               <Trophy className="h-3.5 w-3.5" />
               LAP RECORD {formatTime(bestLap)}
             </div>
           )}
+        </div>
+
+        <div className="animate-fade-up mb-2 flex items-end justify-between" style={{ animationDelay: "0.28s" }}>
+          <div className="font-display text-xs tracking-[0.3em] text-white/70">SELECT MACHINE</div>
+          <span className="hidden text-[10px] tracking-[0.2em] text-white/40 sm:inline">PRESS [V] IN RACE TO CYCLE LIGHTING</span>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" style={{ animationDelay: "0.34s" }}>
@@ -146,6 +207,7 @@ export default function Menu({
             <span><Kbd>←</Kbd><Kbd>→</Kbd> STEER</span>
             <span><Kbd>SHIFT</Kbd> NITRO</span>
             <span><Kbd>SPACE</Kbd> DRIFT</span>
+            <span><Kbd>V</Kbd> LIGHTING</span>
             <span><Kbd>ESC</Kbd> PAUSE</span>
           </div>
           <button

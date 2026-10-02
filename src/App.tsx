@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CARS, STORAGE_BEST, STORAGE_CAR, TOTAL_LAPS, formatTime } from "./game/constants";
+import { CARS, STORAGE_BEST, STORAGE_CAR, STORAGE_WEATHER, TOTAL_LAPS, formatTime, type WeatherMode } from "./game/constants";
 import { RaceEngine, type RaceResult } from "./game/engine";
 import { getAudio } from "./game/audio";
 import { useInput } from "./hooks/useInput";
@@ -29,6 +29,9 @@ export default function App() {
   phaseRef.current = phase;
 
   const [carId, setCarId] = useState<string>(() => localStorage.getItem(STORAGE_CAR) ?? CARS[0].id);
+  const [weather, setWeatherState] = useState<WeatherMode>(
+    () => (localStorage.getItem(STORAGE_WEATHER) as WeatherMode) ?? "night",
+  );
   const [muted, setMuted] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
   const [countdownN, setCountdownN] = useState<number | null>(null);
@@ -58,7 +61,7 @@ export default function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const audio = getAudio();
-    const eng = new RaceEngine(canvas, audio);
+    const eng = new RaceEngine(canvas, audio, weather);
     const car = CARS.find((c) => c.id === (localStorage.getItem(STORAGE_CAR) ?? CARS[0].id)) ?? CARS[0];
     eng.setCar(car);
     eng.onLap = (lap, lapMs) => {
@@ -153,7 +156,29 @@ export default function App() {
     }
   }, [goMenu]);
 
-  useInput(() => engineRef.current, onEscape);
+  const selectWeather = useCallback((w: WeatherMode) => {
+    setWeatherState(w);
+    localStorage.setItem(STORAGE_WEATHER, w);
+    engineRef.current?.setWeather(w);
+  }, []);
+
+  const cycleWeather = useCallback(() => {
+    const modes: WeatherMode[] = ["sunset", "night", "rain"];
+    setWeatherState((curr) => {
+      const next = modes[(modes.indexOf(curr) + 1) % modes.length];
+      localStorage.setItem(STORAGE_WEATHER, next);
+      engineRef.current?.setWeather(next);
+      const labels: Record<WeatherMode, string> = {
+        sunset: "GOLDEN HOUR",
+        night: "NEON NIGHT",
+        rain: "CYBER STORM",
+      };
+      pushToast("ATMOSPHERE", labels[next], "sky");
+      return next;
+    });
+  }, [pushToast]);
+
+  useInput(() => engineRef.current, onEscape, cycleWeather);
 
   // auto-pause on tab switch
   useEffect(() => {
@@ -191,18 +216,22 @@ export default function App() {
       {/* game canvas */}
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
 
-      {/* cinematic overlays */}
-      <div className="pointer-events-none absolute inset-0 z-[5] sun-glow" />
+      {/* cinematic overlays per weather */}
+      {weather === "sunset" && <div className="pointer-events-none absolute inset-0 z-[5] sun-glow" />}
+      {weather === "night" && <div className="pointer-events-none absolute inset-0 z-[5] night-glow" />}
+      {weather === "rain" && <div className="pointer-events-none absolute inset-0 z-[5] rain-overlay" />}
       <div className="pointer-events-none absolute inset-0 z-[5] vignette" />
 
       {/* in-race chrome */}
-      {engine && (phase === "racing" || phase === "paused" || phase === "countdown") && <HUD engine={engine} />}
+      {engine && (phase === "racing" || phase === "paused" || phase === "countdown") && (
+        <HUD engine={engine} onCycleWeather={cycleWeather} />
+      )}
       {engine && isTouch && phase === "racing" && <TouchControls engine={engine} />}
 
       {/* controls hint */}
       {!isTouch && phase === "racing" && showHint && (
         <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 -translate-x-1/2 animate-fade-up whitespace-nowrap border border-white/10 bg-night-900/60 px-4 py-1.5 text-[10px] font-bold tracking-[0.25em] text-white/55 backdrop-blur-sm">
-          <span className="text-ember-300">SHIFT</span> NITRO · <span className="text-ember-300">SPACE</span> DRIFT · <span className="text-ember-300">ESC</span> PAUSE
+          <span className="text-ember-300">SHIFT</span> NITRO · <span className="text-ember-300">SPACE</span> DRIFT · <span className="text-ember-300">V</span> LIGHTING · <span className="text-ember-300">ESC</span> PAUSE
         </div>
       )}
 
@@ -271,6 +300,8 @@ export default function App() {
         <Menu
           carId={carId}
           onSelectCar={selectCar}
+          weather={weather}
+          onSelectWeather={selectWeather}
           onStart={startRace}
           bestLap={bestLap}
           muted={muted}

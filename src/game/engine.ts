@@ -8,8 +8,8 @@ import {
   SEGMENT_LENGTH, ROAD_WIDTH, CAMERA_HEIGHT, DRAW_DISTANCE, FIELD_OF_VIEW,
   FOG_DENSITY, CENTRIFUGAL, TOTAL_LAPS, PLAYER_HALF_W, MPH_SCALE,
   BASE_MAX_SPEED, BASE_ACCEL, BRAKE_FORCE, COAST_DECEL, OFFROAD_DECEL,
-  OFFROAD_LIMIT, BOOST_TOP_MULT, BOOST_ACCEL_MULT, RIVALS, SCENE, CARS,
-  type CarDef,
+  OFFROAD_LIMIT, BOOST_TOP_MULT, BOOST_ACCEL_MULT, RIVALS, SCENES, CARS,
+  type CarDef, type WeatherMode,
 } from "./constants";
 import { buildTrack, type TrackData, type Segment, type SpritePlacement } from "./track";
 import {
@@ -40,6 +40,7 @@ export interface RaceResult {
 
 export interface HudState {
   mode: GameMode;
+  weather: WeatherMode;
   mph: number;
   gear: number;
   rpm: number;
@@ -139,27 +140,34 @@ export class RaceEngine {
   private opponents: Opponent[] = [];
   private particles: Particle[] = [];
 
+  // weather & dynamic lighting
+  private weather: WeatherMode = "sunset";
+  private lightningTimer = 8;
+  private lightningFlash = 0;
+  private rainParticles: { x: number; y: number; speed: number; length: number; alpha: number }[] = [];
+  private rainSplashes: { x: number; y: number; r: number; maxR: number; alpha: number }[] = [];
+  private taillightHistory: { leftX: number; leftY: number; rightX: number; rightY: number; time: number }[] = [];
+
   // pre-rendered scenery
-  private sky: HTMLCanvasElement;
-  private farRidge: HTMLCanvasElement;
-  private nearRidge: HTMLCanvasElement;
-  private clouds: HTMLCanvasElement[];
+  private sky!: HTMLCanvasElement;
+  private farRidge!: HTMLCanvasElement;
+  private nearRidge!: HTMLCanvasElement;
+  private clouds!: HTMLCanvasElement[];
 
   private readonly cameraDepthBase = 1 / Math.tan(((FIELD_OF_VIEW / 2) * Math.PI) / 180);
   private readonly playerZ = CAMERA_HEIGHT * (1 / Math.tan(((FIELD_OF_VIEW / 2) * Math.PI) / 180));
   private resizeHandler: () => void;
 
-  constructor(canvas: HTMLCanvasElement, audio: AudioEngine) {
+  constructor(canvas: HTMLCanvasElement, audio: AudioEngine, initialWeather: WeatherMode = "sunset") {
     this.canvas = canvas;
     this.audio = audio;
+    this.weather = initialWeather;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("no 2d context");
     this.ctx = ctx;
     this.track = buildTrack();
-    this.sky = skyLayer(1200, 620);
-    this.farRidge = ridgeLayer(1024, 300, 11, "#4b3560", 0.85);
-    this.nearRidge = ridgeLayer(1024, 260, 29, "#33243f", 0.95);
-    this.clouds = [cloudSprite(), cloudSprite(), cloudSprite()];
+    this.initScenery();
+    this.initRain();
     this.spawnGrid(true);
     this.resizeHandler = () => this.resize();
     window.addEventListener("resize", this.resizeHandler);
@@ -177,6 +185,46 @@ export class RaceEngine {
   }
 
   // ---------------- public control ----------------
+
+  getWeather(): WeatherMode {
+    return this.weather;
+  }
+
+  setWeather(w: WeatherMode) {
+    if (this.weather === w && this.sky) return;
+    this.weather = w;
+    this.initScenery();
+    this.opponents.forEach((o) => {
+      o.sprite = carSprite(o.paint, false, w);
+    });
+    this.lightningFlash = 0;
+    this.lightningTimer = 7 + Math.random() * 8;
+  }
+
+  private initScenery() {
+    const w = this.weather;
+    this.sky = skyLayer(1200, 620, w);
+    const ridgeColFar = w === "night" ? "#120e24" : w === "rain" ? "#0e1826" : "#4b3560";
+    const ridgeColNear = w === "night" ? "#090714" : w === "rain" ? "#070e17" : "#33243f";
+    this.farRidge = ridgeLayer(1024, 300, 11, ridgeColFar, 0.85, w);
+    this.nearRidge = ridgeLayer(1024, 260, 29, ridgeColNear, 0.95, w);
+    this.clouds = [cloudSprite(w), cloudSprite(w), cloudSprite(w)];
+  }
+
+  private initRain() {
+    this.rainParticles = [];
+    const w = this.width || 1200;
+    const h = this.height || 800;
+    for (let i = 0; i < 220; i++) {
+      this.rainParticles.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        speed: 750 + Math.random() * 450,
+        length: 14 + Math.random() * 16,
+        alpha: 0.25 + Math.random() * 0.45,
+      });
+    }
+  }
 
   setCar(def: CarDef) {
     this.car = def;
@@ -239,6 +287,7 @@ export class RaceEngine {
     const rpm = clamp((this.speed % gearTop) / gearTop, 0, 1);
     return {
       mode: this.mode,
+      weather: this.weather,
       mph: Math.round(this.speed * MPH_SCALE),
       gear,
       rpm,
@@ -280,6 +329,7 @@ export class RaceEngine {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.width = w;
     this.height = h;
+    this.initRain();
   }
 
   private reset() {
@@ -316,6 +366,7 @@ export class RaceEngine {
       sprite: carSprite(
         { base: r.base, dark: r.dark, light: r.light, glassHi: "#9fc3d9", glassLo: "#141d2a", accent: r.accent },
         false,
+        this.weather,
       ),
     }));
     this.positionNow = 8;
@@ -397,6 +448,9 @@ export class RaceEngine {
       this.dust(dt);
       this.shake = Math.max(this.shake, 0.3);
     }
+    if (this.weather === "rain") {
+      this.waterSpray(dt);
+    }
 
     // ---- boost meter ----
     if (this.boostNow) this.boostMeter = Math.max(0, this.boostMeter - 30 * dt);
@@ -454,6 +508,7 @@ export class RaceEngine {
     }
 
     this.updateParticles(dt);
+    this.updateRain(dt);
 
     // ---- audio ----
     const rpm = clamp(this.speed / maxSpeed, 0, 1);
@@ -601,6 +656,75 @@ export class RaceEngine {
     }
   }
 
+  private waterSpray(dt: number) {
+    if (this.speed < 1200) return;
+    const n = Math.min(3, Math.ceil(this.speed / 3400));
+    if (Math.random() < dt * 40) {
+      const cx = this.width / 2;
+      const carW = this.playerDrawW();
+      for (let i = 0; i < n; i++) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        this.particles.push({
+          x: cx + side * carW * 0.38 + (Math.random() - 0.5) * 16,
+          y: this.height * 0.95 + Math.random() * 8,
+          vx: side * (32 + Math.random() * 80),
+          vy: -(35 + Math.random() * 95),
+          life: 0.35 + Math.random() * 0.35,
+          maxLife: 0.7,
+          size: 4 + Math.random() * 7,
+          grow: 28,
+          color: "186,220,245",
+          front: false,
+        });
+      }
+    }
+  }
+
+  private updateRain(dt: number) {
+    if (this.weather !== "rain") return;
+    const speedPct = this.speed / BASE_MAX_SPEED;
+    const windX = (-this.steerVis * 140 - 55) * dt;
+    const fallY = (800 + this.speed * 0.08) * dt;
+    for (const r of this.rainParticles) {
+      r.x += windX;
+      r.y += fallY * (r.speed / 800);
+      if (r.y > this.height) {
+        r.y = -r.length;
+        r.x = Math.random() * this.width;
+      } else if (r.x < 0) {
+        r.x = this.width;
+      } else if (r.x > this.width) {
+        r.x = 0;
+      }
+    }
+    // lens splashes
+    if (Math.random() < dt * (5 + speedPct * 14)) {
+      this.rainSplashes.push({
+        x: Math.random() * this.width,
+        y: Math.random() * this.height,
+        r: 2,
+        maxR: 8 + Math.random() * 14,
+        alpha: 0.55 + Math.random() * 0.35,
+      });
+    }
+    for (let i = this.rainSplashes.length - 1; i >= 0; i--) {
+      const s = this.rainSplashes[i];
+      s.r += dt * 32;
+      if (s.r >= s.maxR) this.rainSplashes.splice(i, 1);
+    }
+
+    // lightning
+    this.lightningTimer -= dt;
+    if (this.lightningTimer <= 0) {
+      this.lightningTimer = 7 + Math.random() * 10;
+      this.lightningFlash = 1.0;
+      this.audio.thunder();
+    }
+    if (this.lightningFlash > 0) {
+      this.lightningFlash = Math.max(0, this.lightningFlash - dt * 3.8);
+    }
+  }
+
   private updateParticles(dt: number) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -643,8 +767,8 @@ export class RaceEngine {
     switch (s.kind) {
       case "palm": return palmSprite();
       case "pine": return pineSprite();
-      case "bill": return billboardSprite(s.variant);
-      case "lamp": return lampSprite();
+      case "bill": return billboardSprite(s.variant, this.weather);
+      case "lamp": return lampSprite(this.weather);
     }
   }
 
@@ -659,6 +783,7 @@ export class RaceEngine {
     const speedPct = clamp(this.speed / maxSpeed, 0, 1);
     const fov = FIELD_OF_VIEW + speedPct * 12 + this.fovBoost * 9;
     const cameraDepth = 1 / Math.tan(((fov / 2) * Math.PI) / 180);
+    const horizon = height * 0.62;
 
     ctx.clearRect(0, 0, width, height);
 
@@ -668,7 +793,7 @@ export class RaceEngine {
       ctx.translate((Math.random() - 0.5) * this.shake * 14, (Math.random() - 0.5) * this.shake * 10);
     }
 
-    this.renderSky(speedPct);
+    this.renderSky(speedPct, horizon);
 
     const base = this.findSegment(this.position);
     const basePct = percentRemaining(this.position, SEGMENT_LENGTH);
@@ -717,10 +842,40 @@ export class RaceEngine {
       }
     }
 
-    // dust behind car
+    // player geometry
+    const dw = this.playerDrawW();
+    const braking = (this.ctlCached?.down ?? false) && this.speed > 300;
+    const sprite = carSprite(this.car, braking, this.weather);
+    const dh = dw * (sprite.canvas.height / sprite.canvas.width);
+    const bounce =
+      Math.sin(this.time * 43) * speedPct * speedPct * height * 0.0035 +
+      (this.offroadNow ? (Math.random() - 0.5) * 5 : 0);
+    const cx = width / 2 + this.steerVis * width * 0.012;
+    const baseY = height * 0.985 + bounce;
+
+    // volumetric headlights on dark road
+    if (this.weather !== "sunset") {
+      this.renderHeadlights(horizon, cx, baseY, dw, dh);
+    }
+
+    // neon underglow
+    this.renderUnderglow(cx, baseY, dw, dh);
+
+    // taillight trails
+    this.renderTaillightTrails();
+
+    // dust / spray behind car
     this.renderParticles(false);
-    this.renderPlayer(speedPct);
+
+    // player car
+    this.renderPlayer(cx, baseY, dw, dh, sprite);
+
+    // sparks / particles in front of car
     this.renderParticles(true);
+
+    // dynamic rain & lens splashes in rain mode
+    this.renderRain();
+
     this.renderSpeedLines(speedPct);
 
     ctx.restore();
@@ -741,11 +896,32 @@ export class RaceEngine {
     scr.w = scr.scale * ROAD_WIDTH * (this.width / 2);
   }
 
-  private renderSky(speedPct: number) {
+  private renderSky(speedPct: number, horizon: number) {
     const { ctx, width, height } = this;
-    const horizon = height * 0.62;
-    // sky gradient + sun
+    const palette = SCENES[this.weather];
+
+    // sky gradient + sun/moon/city
     ctx.drawImage(this.sky, 0, 0, this.sky.width, this.sky.height, 0, 0, width, horizon + 2);
+
+    // lightning flash in rain mode
+    if (this.lightningFlash > 0.01) {
+      ctx.fillStyle = `rgba(224, 245, 255, ${this.lightningFlash * 0.8})`;
+      ctx.fillRect(0, 0, width, horizon + 2);
+      // jagged electric bolt
+      ctx.strokeStyle = `rgba(255, 255, 255, ${this.lightningFlash})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      let lx = width * 0.48;
+      let ly = 10;
+      ctx.moveTo(lx, ly);
+      while (ly < horizon * 0.82) {
+        lx += Math.sin(ly * 0.1) * 22 + (Math.random() - 0.5) * 18;
+        ly += 16 + Math.random() * 22;
+        ctx.lineTo(lx, ly);
+      }
+      ctx.stroke();
+    }
+
     // clouds
     for (let i = 0; i < 3; i++) {
       const cw = width * (0.3 + i * 0.08);
@@ -756,15 +932,18 @@ export class RaceEngine {
       ctx.drawImage(this.clouds[i], cx, cyy, cw, ch);
     }
     ctx.globalAlpha = 1;
+
     // mountains
     this.tileRidge(this.farRidge, this.farOff * 0.4 + this.skyOff * 4, horizon - height * 0.02, height * 0.24);
     this.tileRidge(this.nearRidge, this.nearOff * 0.7 + this.skyOff * 8, horizon, height * 0.17);
+
     // base grass (covers beyond far clip)
-    ctx.fillStyle = SCENE.grassLight;
+    ctx.fillStyle = palette.grassLight;
     ctx.fillRect(0, horizon - 1, width, height - horizon + 1);
+
     // speed shimmer at horizon
     ctx.globalAlpha = speedPct * 0.12;
-    ctx.fillStyle = "#ffe3b0";
+    ctx.fillStyle = this.weather === "night" ? "#a5f3fc" : "#ffe3b0";
     ctx.fillRect(0, horizon - 2, width, 3);
     ctx.globalAlpha = 1;
   }
@@ -781,6 +960,7 @@ export class RaceEngine {
 
   private renderSegment(seg: Segment) {
     const { ctx, width } = this;
+    const palette = SCENES[this.weather];
     const s1 = seg.p1.scr;
     const s2 = seg.p2.scr;
     const x1 = s1.x, y1 = s1.y, w1 = s1.w;
@@ -788,29 +968,45 @@ export class RaceEngine {
     if (y1 <= y2) return;
 
     // grass strip
-    ctx.fillStyle = seg.alt ? SCENE.grassLight : SCENE.grassDark;
+    ctx.fillStyle = seg.alt ? palette.grassLight : palette.grassDark;
     ctx.fillRect(0, y2, width, y1 - y2);
 
     const r1 = w1 * 0.13;
     const r2 = w2 * 0.13;
     // rumble strips
-    ctx.fillStyle = seg.alt ? SCENE.rumbleLight : SCENE.rumbleDark;
+    ctx.fillStyle = seg.alt ? palette.rumbleLight : palette.rumbleDark;
     this.poly(x1 - w1 - r1, y1, x1 - w1, y1, x2 - w2, y2, x2 - w2 - r2, y2);
     this.poly(x1 + w1 + r1, y1, x1 + w1, y1, x2 + w2, y2, x2 + w2 + r2, y2);
+
     // road
-    ctx.fillStyle = seg.alt ? SCENE.roadLight : SCENE.roadDark;
+    ctx.fillStyle = seg.alt ? palette.roadLight : palette.roadDark;
     this.poly(x1 - w1, y1, x1 + w1, y1, x2 + w2, y2, x2 - w2, y2);
+
+    // wet asphalt specular reflection in rain
+    if (palette.wetness > 0) {
+      const wetAlpha = palette.wetness * 0.14 * (1 - seg.fog * 0.4);
+      ctx.fillStyle = `rgba(186, 230, 253, ${wetAlpha})`;
+      this.poly(x1 - w1 * 0.32, y1, x1 + w1 * 0.32, y1, x2 + w2 * 0.32, y2, x2 - w2 * 0.32, y2);
+    }
+
     // edge glow lines
-    ctx.fillStyle = SCENE.edge;
+    ctx.fillStyle = palette.edge;
     const e1 = w1 * 0.014, e2 = w2 * 0.014;
     this.poly(x1 - w1 + e1, y1, x1 - w1 + e1 * 2, y1, x2 - w2 + e2 * 2, y2, x2 - w2 + e2, y2);
     this.poly(x1 + w1 - e1 * 2, y1, x1 + w1 - e1, y1, x2 + w2 - e2, y2, x2 + w2 - e2 * 2, y2);
 
     // lane dashes
     if (seg.index % (3 * 2) < 3) {
-      ctx.fillStyle = SCENE.lane;
+      ctx.fillStyle = palette.lane;
       const l1 = w1 * 0.016, l2 = w2 * 0.016;
       this.poly(x1 - l1, y1, x1 + l1, y1, x2 + l2, y2, x2 - l2, y2);
+    }
+
+    // cat's eye reflectors along edges in dark environments
+    if (this.weather !== "sunset" && seg.index % 6 === 0) {
+      ctx.fillStyle = this.weather === "night" ? "rgba(0, 229, 255, 0.9)" : "rgba(255, 230, 120, 0.85)";
+      ctx.fillRect(x1 - w1 - 2, y1 - 2, 4, 3);
+      ctx.fillRect(x1 + w1 - 2, y1 - 2, 4, 3);
     }
 
     // start line checkers
@@ -828,7 +1024,7 @@ export class RaceEngine {
     const a = (1 - seg.fog) * 0.92;
     if (a > 0.012) {
       ctx.globalAlpha = a;
-      ctx.fillStyle = SCENE.fog;
+      ctx.fillStyle = palette.fog;
       ctx.fillRect(0, y2, width, y1 - y2);
       ctx.globalAlpha = 1;
     }
@@ -878,6 +1074,19 @@ export class RaceEngine {
     const dx = sx - dw / 2;
     const dy = sy - dh;
     const clipY = seg.clip;
+
+    // in dark environments, draw red LED taillight halo behind rival
+    if (this.weather !== "sunset") {
+      const glow = this.ctx.createRadialGradient(sx, sy - dh * 0.5, 2, sx, sy - dh * 0.5, dw * 0.55);
+      glow.addColorStop(0, "rgba(255, 25, 45, 0.75)");
+      glow.addColorStop(0.5, "rgba(255, 10, 30, 0.2)");
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      this.ctx.fillStyle = glow;
+      this.ctx.beginPath();
+      this.ctx.arc(sx, sy - dh * 0.5, dw * 0.55, 0, Math.PI * 2);
+      this.ctx.fill();
+    }
+
     if (clipY && dy + dh > clipY) {
       const visH = clipY - dy;
       if (visH <= 0) return;
@@ -893,17 +1102,171 @@ export class RaceEngine {
     return 0.335 * ROAD_WIDTH * scale * (this.width / 2);
   }
 
-  private renderPlayer(speedPct: number) {
-    const { ctx, width, height } = this;
-    const braking = (this.ctlCached?.down ?? false) && this.speed > 300;
-    const sprite = carSprite(this.car, braking);
-    const dw = this.playerDrawW();
-    const dh = dw * (sprite.canvas.height / sprite.canvas.width);
-    const bounce =
-      Math.sin(this.time * 43) * speedPct * speedPct * height * 0.0035 +
-      (this.offroadNow ? (Math.random() - 0.5) * 5 : 0);
-    const cx = width / 2 + this.steerVis * width * 0.012;
-    const baseY = height * 0.985 + bounce;
+  private renderHeadlights(horizon: number, cx: number, baseY: number, dw: number, dh: number) {
+    const { ctx, width } = this;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+
+    const beamColor = this.weather === "night" ? "rgba(224, 242, 254, 0.28)" : "rgba(255, 245, 210, 0.25)";
+    const beamHot = this.weather === "night" ? "rgba(224, 242, 254, 0.55)" : "rgba(255, 245, 210, 0.5)";
+
+    // left beam shaft
+    const lx0 = cx - dw * 0.32;
+    const ly0 = baseY - dh * 0.2;
+    const lGrad = ctx.createLinearGradient(lx0, ly0, cx - width * 0.18, horizon + 20);
+    lGrad.addColorStop(0, beamHot);
+    lGrad.addColorStop(0.3, beamColor);
+    lGrad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = lGrad;
+    ctx.beginPath();
+    ctx.moveTo(lx0 - 8, ly0);
+    ctx.lineTo(lx0 + 8, ly0);
+    ctx.lineTo(cx - width * 0.05, horizon + 20);
+    ctx.lineTo(cx - width * 0.35, horizon + 20);
+    ctx.closePath();
+    ctx.fill();
+
+    // right beam shaft
+    const rx0 = cx + dw * 0.32;
+    const ry0 = baseY - dh * 0.2;
+    const rGrad = ctx.createLinearGradient(rx0, ry0, cx + width * 0.18, horizon + 20);
+    rGrad.addColorStop(0, beamHot);
+    rGrad.addColorStop(0.3, beamColor);
+    rGrad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = rGrad;
+    ctx.beginPath();
+    ctx.moveTo(rx0 - 8, ry0);
+    ctx.lineTo(rx0 + 8, ry0);
+    ctx.lineTo(cx + width * 0.35, horizon + 20);
+    ctx.lineTo(cx + width * 0.05, horizon + 20);
+    ctx.closePath();
+    ctx.fill();
+
+    // high-beam illuminated pavement oval directly in front of the car
+    const roadPool = ctx.createRadialGradient(cx, baseY - dh * 0.25, 10, cx, baseY - dh * 0.25, dw * 1.6);
+    roadPool.addColorStop(0, this.weather === "night" ? "rgba(224, 245, 255, 0.42)" : "rgba(255, 240, 200, 0.38)");
+    roadPool.addColorStop(0.5, this.weather === "night" ? "rgba(186, 230, 253, 0.18)" : "rgba(255, 220, 160, 0.14)");
+    roadPool.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = roadPool;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY - dh * 0.25, dw * 1.6, dh * 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  private renderUnderglow(cx: number, baseY: number, dw: number, dh: number) {
+    const { ctx } = this;
+    const color = this.car.accent || "#00e5ff";
+    const intense = this.boostNow;
+    const ugRadius = dw * (intense ? 1.35 : 1.05);
+
+    ctx.save();
+    const ug = ctx.createRadialGradient(cx, baseY + dh * 0.02, 10, cx, baseY + dh * 0.02, ugRadius);
+    ug.addColorStop(0, color + (intense ? "cc" : "88"));
+    ug.addColorStop(0.45, color + (intense ? "55" : "28"));
+    ug.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = ug;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY + dh * 0.02, ugRadius, dh * 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private renderTaillightTrails() {
+    if (this.taillightHistory.length < 3) return;
+    const { ctx } = this;
+    const isDark = this.weather !== "sunset";
+    const intense = this.boostNow || this.driftNow;
+    if (!isDark && !intense) return;
+
+    ctx.save();
+    // left taillight trail
+    ctx.beginPath();
+    for (let i = 0; i < this.taillightHistory.length; i++) {
+      const pt = this.taillightHistory[i];
+      if (i === 0) ctx.moveTo(pt.leftX, pt.leftY);
+      else ctx.lineTo(pt.leftX, pt.leftY);
+    }
+    ctx.strokeStyle = "rgba(255, 23, 68, 0.85)";
+    ctx.lineWidth = intense ? 4 : 2.5;
+    ctx.shadowColor = "#ff1744";
+    ctx.shadowBlur = intense ? 18 : 10;
+    ctx.stroke();
+
+    // right taillight trail
+    ctx.beginPath();
+    for (let i = 0; i < this.taillightHistory.length; i++) {
+      const pt = this.taillightHistory[i];
+      if (i === 0) ctx.moveTo(pt.rightX, pt.rightY);
+      else ctx.lineTo(pt.rightX, pt.rightY);
+    }
+    ctx.stroke();
+
+    // if boosting, add dual electric cyan nitro exhaust ribbons
+    if (this.boostNow) {
+      ctx.beginPath();
+      for (let i = 0; i < this.taillightHistory.length; i++) {
+        const pt = this.taillightHistory[i];
+        const nx = pt.leftX + (pt.rightX - pt.leftX) * 0.38;
+        if (i === 0) ctx.moveTo(nx, pt.leftY + 4);
+        else ctx.lineTo(nx, pt.leftY + 4);
+      }
+      ctx.strokeStyle = "rgba(0, 229, 255, 0.9)";
+      ctx.lineWidth = 3;
+      ctx.shadowColor = "#00e5ff";
+      ctx.shadowBlur = 16;
+      ctx.stroke();
+
+      ctx.beginPath();
+      for (let i = 0; i < this.taillightHistory.length; i++) {
+        const pt = this.taillightHistory[i];
+        const nx = pt.leftX + (pt.rightX - pt.leftX) * 0.62;
+        if (i === 0) ctx.moveTo(nx, pt.rightY + 4);
+        else ctx.lineTo(nx, pt.rightY + 4);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private renderRain() {
+    if (this.weather !== "rain") return;
+    const { ctx } = this;
+    const speedPct = this.speed / BASE_MAX_SPEED;
+    const wind = -this.steerVis * 140 - 50;
+
+    // rain streaks
+    ctx.save();
+    ctx.strokeStyle = "rgba(186, 230, 253, 0.42)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (const r of this.rainParticles) {
+      ctx.moveTo(r.x, r.y);
+      ctx.lineTo(r.x + wind * 0.04, r.y + r.length * (1 + speedPct * 0.7));
+    }
+    ctx.stroke();
+
+    // lens splashes
+    for (const s of this.rainSplashes) {
+      const alpha = (1 - s.r / s.maxR) * s.alpha;
+      ctx.strokeStyle = `rgba(224, 242, 254, ${alpha})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private renderPlayer(
+    cx: number,
+    baseY: number,
+    dw: number,
+    dh: number,
+    sprite: SpriteInfo,
+  ) {
+    const { ctx } = this;
     const tilt = this.steerVis * 0.05 + (this.driftNow ? this.steerVis * 0.08 : 0);
 
     // nitro flames
@@ -925,6 +1288,17 @@ export class RaceEngine {
         ctx.fill();
       }
     }
+
+    // record taillight history for light trails
+    const brakeY = baseY - dh * 0.52;
+    this.taillightHistory.push({
+      leftX: cx - dw * 0.33,
+      leftY: brakeY,
+      rightX: cx + dw * 0.33,
+      rightY: brakeY,
+      time: this.time,
+    });
+    while (this.taillightHistory.length > 16) this.taillightHistory.shift();
 
     ctx.save();
     ctx.translate(cx, baseY - dh / 2);

@@ -120,25 +120,74 @@ export const RIVALS: Rival[] = [
   { name: "ORION", base: "#c9581e", dark: "#66300d", light: "#ffa675", accent: "#ffe7d6" },
 ];
 
-// golden-hour scene palette
-export const SCENE = {
-  fog: "#e2a06b",
-  roadLight: "#6e6a67",
-  roadDark: "#666260",
-  grassLight: "#8b9057",
-  grassDark: "#7f8750",
-  rumbleLight: "#ece5d6",
-  rumbleDark: "#bd3d2c",
-  lane: "rgba(240, 234, 216, 0.75)",
-  edge: "rgba(255, 240, 210, 0.16)",
+export type WeatherMode = "sunset" | "night" | "rain";
+
+export interface ScenePalette {
+  fog: string;
+  roadLight: string;
+  roadDark: string;
+  grassLight: string;
+  grassDark: string;
+  rumbleLight: string;
+  rumbleDark: string;
+  lane: string;
+  edge: string;
+  ambientLight: number;
+  wetness: number;
+}
+
+export const SCENES: Record<WeatherMode, ScenePalette> = {
+  sunset: {
+    fog: "#e2a06b",
+    roadLight: "#6e6a67",
+    roadDark: "#666260",
+    grassLight: "#8b9057",
+    grassDark: "#7f8750",
+    rumbleLight: "#ece5d6",
+    rumbleDark: "#bd3d2c",
+    lane: "rgba(240, 234, 216, 0.75)",
+    edge: "rgba(255, 240, 210, 0.16)",
+    ambientLight: 1.0,
+    wetness: 0,
+  },
+  night: {
+    fog: "#070612",
+    roadLight: "#181a24",
+    roadDark: "#111219",
+    grassLight: "#0c111a",
+    grassDark: "#080b12",
+    rumbleLight: "#00e5ff", // electric cyan neon
+    rumbleDark: "#ff007f", // electric magenta neon
+    lane: "rgba(255, 230, 110, 0.95)", // glowing phosphor highway lane
+    edge: "rgba(0, 229, 255, 0.6)", // neon cyan edge glow
+    ambientLight: 0.22,
+    wetness: 0.25,
+  },
+  rain: {
+    fog: "#09101c",
+    roadLight: "#121824",
+    roadDark: "#0c111a",
+    grassLight: "#101822",
+    grassDark: "#090f16",
+    rumbleLight: "#dbeafe",
+    rumbleDark: "#2563eb",
+    lane: "rgba(240, 248, 255, 0.9)",
+    edge: "rgba(56, 189, 248, 0.55)",
+    ambientLight: 0.28,
+    wetness: 0.95,
+  },
 };
+
+// default golden-hour scene palette
+export const SCENE = SCENES.sunset;
 
 export const TRACK_NAME = "COASTLINE CIRCUIT";
 export const GAME_TITLE = "APEX HORIZON";
-export const GAME_SUB = "GOLDEN HOUR GRAND PRIX";
+export const GAME_SUB = "HIGHWAY GRAND PRIX";
 
 export const STORAGE_CAR = "apex.car";
 export const STORAGE_BEST = "apex.best";
+export const STORAGE_WEATHER = "apex.weather";
 
 export function ordinal(n: number): string {
   const s = ["th", "st", "nd", "rd"];
