@@ -26,6 +26,9 @@ export class AudioEngine {
   private step = 0;
 
   private ready = false;
+  private sfxVol = 0.8;
+  private musicVol = 0.75;
+  private engineVolMult = 0.85;
 
   /** must be called from a user gesture */
   ensure() {
@@ -44,11 +47,11 @@ export class AudioEngine {
     this.master.connect(ctx.destination);
 
     this.sfx = ctx.createGain();
-    this.sfx.gain.value = 1;
+    this.sfx.gain.value = this.sfxVol;
     this.sfx.connect(this.master);
 
     this.musicBus = ctx.createGain();
-    this.musicBus.gain.value = 0.4;
+    this.musicBus.gain.value = this.musicVol * 0.45;
     this.musicBus.connect(this.master);
 
     // white noise buffer
@@ -110,6 +113,24 @@ export class AudioEngine {
     if (this.musicOn) this.startMusic();
   }
 
+  setSfxVolume(pct: number) {
+    this.sfxVol = Math.max(0, Math.min(1, pct / 100));
+    if (this.sfx && this.ctx) {
+      this.sfx.gain.setTargetAtTime(this.sfxVol, this.ctx.currentTime, 0.03);
+    }
+  }
+
+  setMusicVolume(pct: number) {
+    this.musicVol = Math.max(0, Math.min(1, pct / 100));
+    if (this.musicBus && this.ctx) {
+      this.musicBus.gain.setTargetAtTime(this.musicVol * 0.45, this.ctx.currentTime, 0.03);
+    }
+  }
+
+  setEngineVolume(pct: number) {
+    this.engineVolMult = Math.max(0, Math.min(1, pct / 100));
+  }
+
   /** continuous per-frame state */
   setEngine(rpm: number, throttle: boolean, active: boolean) {
     if (!this.ctx || !this.engOsc1 || !this.engOsc2 || !this.engSub || !this.engFilter || !this.engGain) return;
@@ -119,7 +140,7 @@ export class AudioEngine {
     this.engOsc2.frequency.setTargetAtTime(f * 1.494, t, 0.03);
     this.engSub.frequency.setTargetAtTime(f * 0.5, t, 0.04);
     this.engFilter.frequency.setTargetAtTime(280 + rpm * 2600 + (throttle ? 900 : 0), t, 0.05);
-    const vol = active ? (0.045 + rpm * 0.075 + (throttle ? 0.05 : 0)) : 0;
+    const vol = active ? (0.045 + rpm * 0.075 + (throttle ? 0.05 : 0)) * this.engineVolMult : 0;
     this.engGain.gain.setTargetAtTime(this.muted ? 0 : vol, t, 0.06);
   }
 

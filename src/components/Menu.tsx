@@ -1,5 +1,8 @@
 import { useMemo } from "react";
-import { Flag, Gauge, Play, Timer, Trophy, Volume2, VolumeX, Wind, Zap, Music, Sun, Moon, CloudRain } from "lucide-react";
+import {
+  Flag, Gauge, Play, Timer, Trophy, Volume2, VolumeX, Wind, Zap,
+  Music, Sun, Moon, CloudRain, Settings, Sparkles
+} from "lucide-react";
 import { CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime, type WeatherMode } from "../game/constants";
 import { carPreview } from "../game/sprites";
 import { cn } from "../utils/cn";
@@ -10,6 +13,7 @@ interface MenuProps {
   weather: WeatherMode;
   onSelectWeather: (w: WeatherMode) => void;
   onStart: () => void;
+  onOpenSettings: () => void;
   bestLap: number | null;
   muted: boolean;
   onToggleMute: () => void;
@@ -23,6 +27,7 @@ export default function Menu({
   weather,
   onSelectWeather,
   onStart,
+  onOpenSettings,
   bestLap,
   muted,
   onToggleMute,
@@ -32,89 +37,112 @@ export default function Menu({
   const previews = useMemo(() => CARS.map((c) => ({ id: c.id, url: carPreview(c, weather) })), [weather]);
 
   const atmoName = weather === "night" ? "NEON MIDNIGHT" : weather === "rain" ? "CYBER STORM" : "GOLDEN HOUR";
-  const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — NITRO ENABLED — DRIFT TO CHARGE — `;
+  const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — NITRO SPEED BOOST — DRIFT TO CHARGE`;
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col overflow-hidden">
-      {/* top shade */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-night-900/90 via-night-900/40 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-night-900/95 via-night-900/50 to-transparent" />
+    <div className="absolute inset-0 z-20 flex flex-col justify-between overflow-hidden">
+      {/* Cinematic gradient vignette to give rich contrast to UI */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-night-950/80 via-transparent to-night-950/90" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-96 bg-gradient-to-t from-night-950/95 via-night-900/60 to-transparent" />
 
-      {/* header */}
+      {/* Top Header */}
       <header className="relative z-10 flex items-center justify-between px-6 pt-5 sm:px-10 animate-fade-up">
         <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center border border-ember-400/40 bg-night-800/70">
+          <div className="grid h-9 w-9 place-items-center border border-ember-400/40 bg-night-900/80 backdrop-blur-md">
             <Flag className="h-4 w-4 text-ember-400" />
           </div>
-          <div className="leading-none">
+          <div className="leading-tight">
             <div className="font-display text-[11px] tracking-[0.3em] text-ember-300">APX SERIES</div>
-            <div className="text-[10px] tracking-[0.24em] text-white/45">ROUND 07 // SEASIDE</div>
+            <div className="text-[10px] tracking-[0.22em] text-white/50">COASTLINE CIRCUIT // RD 07</div>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
+          {/* Settings Button */}
+          <button
+            onClick={onOpenSettings}
+            className="flex items-center gap-1.5 border border-white/15 bg-night-900/70 px-3 py-1.5 text-white/70 backdrop-blur-md transition-all hover:border-ember-400/50 hover:text-ember-300 active:scale-95"
+            title="Open Settings"
+          >
+            <Settings className="h-4 w-4" />
+            <span className="hidden font-display text-[10px] tracking-[0.2em] sm:inline">SETTINGS</span>
+          </button>
+
+          {/* Music Toggle */}
           <button
             onClick={onToggleMusic}
             className={cn(
-              "grid h-9 w-9 place-items-center border transition-colors",
-              musicOn ? "border-ember-400/50 text-ember-300" : "border-white/15 text-white/35",
+              "grid h-8.5 w-8.5 place-items-center border backdrop-blur-md transition-all active:scale-95",
+              musicOn ? "border-ember-400/50 bg-ember-500/10 text-ember-300" : "border-white/15 bg-night-900/70 text-white/35",
             )}
-            title="Music"
+            title="Toggle Music"
           >
             <Music className="h-4 w-4" />
           </button>
+
+          {/* Sound Toggle */}
           <button
             onClick={onToggleMute}
             className={cn(
-              "grid h-9 w-9 place-items-center border transition-colors",
-              !muted ? "border-ember-400/50 text-ember-300" : "border-white/15 text-white/35",
+              "grid h-8.5 w-8.5 place-items-center border backdrop-blur-md transition-all active:scale-95",
+              !muted ? "border-ember-400/50 bg-ember-500/10 text-ember-300" : "border-white/15 bg-night-900/70 text-white/35",
             )}
-            title="Sound"
+            title="Toggle Sound FX"
           >
             {!muted ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
         </div>
       </header>
 
-      {/* hero */}
-      <div className="relative z-10 mt-4 flex flex-col items-center px-6 text-center sm:mt-7">
-        <div className="animate-fade-up text-[10px] font-semibold tracking-[0.55em] text-ember-300/90 sm:text-xs" style={{ animationDelay: "0.05s" }}>
+      {/* Hero Title Section */}
+      <div className="relative z-10 flex flex-col items-center px-6 text-center -mt-2 sm:mt-1">
+        <div
+          className="animate-fade-up inline-flex items-center gap-2 border border-ember-400/30 bg-night-950/70 px-3.5 py-1 text-[10px] font-semibold tracking-[0.45em] text-ember-300/90 backdrop-blur-md sm:text-xs"
+          style={{ animationDelay: "0.05s" }}
+        >
+          <Sparkles className="h-3 w-3 text-ember-400" />
           {GAME_SUB}
         </div>
+
         <h1
-          className="animate-fade-up font-display text-[13vw] leading-[0.95] tracking-tight text-transparent italic sm:text-[7.5rem] lg:text-[8.5rem]"
+          className="animate-fade-up font-display text-[13vw] leading-[0.92] tracking-tight text-transparent italic sm:text-[6.5rem] lg:text-[7.5rem]"
           style={{
             animationDelay: "0.12s",
-            backgroundImage: "linear-gradient(175deg, #fff6e8 12%, #ffc36e 38%, #ff7b1c 62%, #a83c10 88%)",
+            backgroundImage: "linear-gradient(175deg, #ffffff 10%, #ffe3a8 30%, #ff8e24 60%, #a83808 90%)",
             WebkitBackgroundClip: "text",
             backgroundClip: "text",
-            filter: "drop-shadow(0 6px 30px rgba(255,123,28,0.35)) drop-shadow(0 2px 6px rgba(0,0,0,0.6))",
+            filter: "drop-shadow(0 6px 35px rgba(255,123,28,0.4)) drop-shadow(0 2px 10px rgba(0,0,0,0.85))",
           }}
         >
           {GAME_TITLE}
         </h1>
-        {/* ticker */}
-        <div className="animate-fade-up mt-3 w-full max-w-2xl overflow-hidden border-y border-ember-400/20 py-1.5" style={{ animationDelay: "0.2s" }}>
-          <div className="flex w-max animate-marquee whitespace-nowrap text-[10px] font-semibold tracking-[0.35em] text-ember-200/70">
-            <span className="pr-4">{ticker}</span>
-            <span className="pr-4">{ticker}</span>
+
+        {/* Clean Glass Ticker Pill */}
+        <div
+          className="animate-fade-up mt-2 w-full max-w-lg overflow-hidden border border-white/12 bg-night-950/75 py-1 px-4 backdrop-blur-md"
+          style={{ animationDelay: "0.18s" }}
+        >
+          <div className="flex w-max animate-marquee whitespace-nowrap text-[9px] font-semibold tracking-[0.3em] text-ember-200/80">
+            <span className="pr-8">{ticker}</span>
+            <span className="pr-8">{ticker}</span>
           </div>
         </div>
       </div>
 
-      {/* atmosphere & car select */}
-      <div className="relative z-10 mt-auto px-4 pb-4 sm:px-10 sm:pb-8">
-        {/* Atmosphere Selector */}
-        <div className="animate-fade-up mb-3 flex flex-wrap items-center justify-between gap-2.5" style={{ animationDelay: "0.24s" }}>
-          <div className="flex items-center gap-2">
+      {/* Bottom Hub: Atmosphere + Car Select + Launch */}
+      <div className="relative z-10 px-4 pb-4 sm:px-10 sm:pb-6">
+        {/* Atmosphere & Record Header */}
+        <div className="animate-fade-up mb-3 flex flex-wrap items-center justify-between gap-3" style={{ animationDelay: "0.24s" }}>
+          <div className="flex items-center gap-2.5">
             <span className="font-display text-[10px] tracking-[0.3em] text-white/50">ATMOSPHERE:</span>
-            <div className="flex items-center gap-1 border border-white/10 bg-night-900/60 p-0.5 backdrop-blur-sm">
+            <div className="inline-flex border border-white/15 bg-night-950/80 p-0.5 backdrop-blur-md shadow-lg">
               <button
                 type="button"
                 onClick={() => onSelectWeather("sunset")}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.18em] transition-all",
+                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.16em] transition-all",
                   weather === "sunset"
-                    ? "bg-gradient-to-r from-amber-600 to-amber-500 font-bold text-night-900 shadow-[0_0_15px_rgba(245,158,11,0.5)]"
+                    ? "bg-gradient-to-r from-amber-600 to-amber-500 font-bold text-night-900 shadow-[0_0_18px_rgba(245,158,11,0.5)]"
                     : "text-white/60 hover:bg-white/5 hover:text-white",
                 )}
               >
@@ -125,9 +153,9 @@ export default function Menu({
                 type="button"
                 onClick={() => onSelectWeather("night")}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.18em] transition-all",
+                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.16em] transition-all",
                   weather === "night"
-                    ? "bg-gradient-to-r from-cyan-500 to-fuchsia-600 font-bold text-white shadow-[0_0_20px_rgba(0,229,255,0.6)]"
+                    ? "bg-gradient-to-r from-cyan-500 via-sky-500 to-fuchsia-600 font-bold text-white shadow-[0_0_20px_rgba(0,229,255,0.6)]"
                     : "text-white/60 hover:bg-white/5 hover:text-white",
                 )}
               >
@@ -138,9 +166,9 @@ export default function Menu({
                 type="button"
                 onClick={() => onSelectWeather("rain")}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.18em] transition-all",
+                  "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.16em] transition-all",
                   weather === "rain"
-                    ? "bg-gradient-to-r from-blue-600 to-sky-400 font-bold text-white shadow-[0_0_20px_rgba(56,189,248,0.5)]"
+                    ? "bg-gradient-to-r from-blue-600 to-cyan-400 font-bold text-white shadow-[0_0_20px_rgba(56,189,248,0.55)]"
                     : "text-white/60 hover:bg-white/5 hover:text-white",
                 )}
               >
@@ -149,20 +177,17 @@ export default function Menu({
               </button>
             </div>
           </div>
+
           {bestLap !== null && (
-            <div className="flex items-center gap-2 text-[11px] font-semibold tracking-widest text-ember-300">
+            <div className="flex items-center gap-2 border border-ember-400/30 bg-night-950/70 px-3 py-1 text-[11px] font-semibold tracking-widest text-ember-300 backdrop-blur-md">
               <Trophy className="h-3.5 w-3.5" />
               LAP RECORD {formatTime(bestLap)}
             </div>
           )}
         </div>
 
-        <div className="animate-fade-up mb-2 flex items-end justify-between" style={{ animationDelay: "0.28s" }}>
-          <div className="font-display text-xs tracking-[0.3em] text-white/70">SELECT MACHINE</div>
-          <span className="hidden text-[10px] tracking-[0.2em] text-white/40 sm:inline">PRESS [V] IN RACE TO CYCLE LIGHTING</span>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" style={{ animationDelay: "0.34s" }}>
+        {/* Machine Selection Grid */}
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3" style={{ animationDelay: "0.32s" }}>
           {CARS.map((car, i) => {
             const active = car.id === carId;
             const preview = previews.find((p) => p.id === car.id)?.url;
@@ -173,46 +198,74 @@ export default function Menu({
                 className={cn(
                   "animate-fade-up group relative overflow-hidden border text-left transition-all duration-300",
                   active
-                    ? "corner-frame border-ember-400/70 bg-night-800/80 shadow-[0_0_50px_rgba(255,123,28,0.22)]"
-                    : "border-white/10 bg-night-900/55 hover:border-white/25 hover:bg-night-800/70",
+                    ? "corner-frame border-ember-400/80 bg-night-800/95 shadow-[0_0_45px_rgba(255,123,28,0.25)] ring-1 ring-ember-400/40"
+                    : "border-white/12 bg-night-900/85 backdrop-blur-md hover:border-white/30 hover:bg-night-800/90",
                 )}
-                style={{ animationDelay: `${0.34 + i * 0.07}s` }}
+                style={{ animationDelay: `${0.32 + i * 0.07}s` }}
               >
-                <div className="relative">
+                {/* Turntable Preview Container */}
+                <div className="relative overflow-hidden bg-night-950">
                   {preview && (
-                    <img src={preview} alt={car.name} className={cn("h-28 w-full object-cover transition-transform duration-500 sm:h-32", active ? "scale-105" : "group-hover:scale-[1.03]")} draggable={false} />
+                    <img
+                      src={preview}
+                      alt={car.name}
+                      className={cn(
+                        "h-32 w-full object-contain sm:h-36 transition-transform duration-500",
+                        active ? "scale-105" : "group-hover:scale-[1.03]"
+                      )}
+                      draggable={false}
+                    />
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-night-900 via-transparent to-transparent" />
-                  <div className={cn("absolute left-3 top-2 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.2em]", active ? "bg-ember-500/90 text-night-900" : "bg-white/10 text-white/60")}>
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-night-900/90 via-transparent to-transparent" />
+                  <div
+                    className={cn(
+                      "absolute left-3 top-2.5 px-2 py-0.5 text-[9px] font-bold tracking-[0.2em] border",
+                      active
+                        ? "border-ember-400 bg-ember-500 text-night-900 shadow-[0_0_12px_rgba(255,158,61,0.5)]"
+                        : "border-white/15 bg-night-900/80 text-white/60"
+                    )}
+                  >
                     {car.cls}
                   </div>
                 </div>
-                <div className="space-y-1.5 p-3">
-                  <div className={cn("font-display text-lg italic tracking-wide", active ? "text-ember-300" : "text-white/85")}>{car.name}</div>
+
+                {/* Specs and details */}
+                <div className="space-y-2 p-3.5 bg-gradient-to-b from-transparent to-night-950/70">
+                  <div className="flex items-baseline justify-between">
+                    <div className={cn("font-display text-lg italic tracking-wide", active ? "text-ember-300" : "text-white/90")}>
+                      {car.name}
+                    </div>
+                    {active && (
+                      <span className="font-display text-[9px] tracking-widest text-ember-400 font-bold animate-pulse">
+                        READY
+                      </span>
+                    )}
+                  </div>
                   <Stat icon={<Gauge className="h-3 w-3" />} label="TOP" value={car.statTop} active={active} />
                   <Stat icon={<Zap className="h-3 w-3" />} label="ACC" value={car.statAcc} active={active} />
                   <Stat icon={<Wind className="h-3 w-3" />} label="GRIP" value={car.statGrip} active={active} />
                 </div>
-                {active && <div className="pointer-events-none absolute inset-0 animate-pulse-ring border border-ember-400/50" />}
               </button>
             );
           })}
         </div>
 
-        {/* CTA + controls */}
-        <div className="animate-fade-up mt-4 flex flex-col items-center gap-3 sm:mt-5 sm:flex-row sm:justify-between" style={{ animationDelay: "0.55s" }}>
-          <div className="hidden flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-semibold tracking-[0.18em] text-white/45 sm:flex">
-            <span><Kbd>↑</Kbd> THROTTLE</span>
-            <span><Kbd>↓</Kbd> BRAKE</span>
-            <span><Kbd>←</Kbd><Kbd>→</Kbd> STEER</span>
+        {/* CTA Launch + Controls Bar */}
+        <div className="animate-fade-up mt-4 flex flex-col items-center gap-3 sm:mt-5 sm:flex-row sm:justify-between" style={{ animationDelay: "0.5s" }}>
+          <div className="hidden flex-wrap items-center gap-x-3.5 gap-y-1 text-[10px] font-semibold tracking-[0.16em] text-white/45 sm:flex">
+            <span><Kbd>↑ / W</Kbd> ACCEL</span>
+            <span><Kbd>↓ / S</Kbd> BRAKE</span>
+            <span><Kbd>← → / A D</Kbd> STEER</span>
             <span><Kbd>SHIFT</Kbd> NITRO</span>
             <span><Kbd>SPACE</Kbd> DRIFT</span>
             <span><Kbd>V</Kbd> LIGHTING</span>
+            <span><Kbd>O</Kbd> SETTINGS</span>
             <span><Kbd>ESC</Kbd> PAUSE</span>
           </div>
+
           <button
             onClick={onStart}
-            className="group relative flex items-center gap-3 overflow-hidden bg-gradient-to-r from-ember-600 via-ember-500 to-ember-400 px-10 py-4 font-display text-xl italic tracking-wider text-night-900 shadow-[0_0_60px_rgba(255,123,28,0.45)] transition-transform duration-200 hover:scale-[1.04] active:scale-95"
+            className="group relative flex items-center gap-3 overflow-hidden bg-gradient-to-r from-ember-600 via-ember-500 to-ember-400 px-10 py-3.5 font-display text-lg italic tracking-wider text-night-900 shadow-[0_0_55px_rgba(255,123,28,0.45)] transition-transform duration-200 hover:scale-[1.04] active:scale-95"
           >
             <Timer className="h-5 w-5" />
             START RACE
@@ -236,6 +289,7 @@ function Stat({ icon, label, value, active }: { icon: React.ReactNode; label: st
           style={{ width: `${value * 100}%` }}
         />
       </div>
+      <span className="text-[9px] font-mono text-white/40">{Math.round(value * 100)}%</span>
     </div>
   );
 }

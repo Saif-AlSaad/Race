@@ -6,11 +6,14 @@ export function useInput(
   getEngine: () => RaceEngine | null,
   onEscape: () => void,
   onWeatherCycle?: () => void,
+  onSettings?: () => void,
 ) {
   const escRef = useRef(onEscape);
   escRef.current = onEscape;
   const weatherRef = useRef(onWeatherCycle);
   weatherRef.current = onWeatherCycle;
+  const settingsRef = useRef(onSettings);
+  settingsRef.current = onSettings;
   const engineRefFn = useRef(getEngine);
   engineRefFn.current = getEngine;
 
@@ -41,6 +44,10 @@ export function useInput(
       }
       if (e.code === "KeyV" && e.type === "keydown") {
         weatherRef.current?.();
+        return;
+      }
+      if (e.code === "KeyO" && e.type === "keydown") {
+        settingsRef.current?.();
         return;
       }
       if (set(e.code, true)) e.preventDefault();

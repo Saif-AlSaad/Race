@@ -188,6 +188,33 @@ export const GAME_SUB = "HIGHWAY GRAND PRIX";
 export const STORAGE_CAR = "apex.car";
 export const STORAGE_BEST = "apex.best";
 export const STORAGE_WEATHER = "apex.weather";
+export const STORAGE_SETTINGS = "apex.settings";
+
+export interface GameSettings {
+  sfxVolume: number; // 0..100
+  musicVolume: number; // 0..100
+  engineVolume: number; // 0..100
+  speedUnit: "mph" | "kmh";
+  steeringSensitivity: number; // 0.8, 1.0, 1.25
+  speedLines: boolean;
+  cameraShake: number; // 0, 0.5, 1.0, 1.5
+  lightTrails: boolean;
+  rainEffects: boolean;
+  autoThrottle: boolean;
+}
+
+export const DEFAULT_SETTINGS: GameSettings = {
+  sfxVolume: 80,
+  musicVolume: 75,
+  engineVolume: 85,
+  speedUnit: "mph",
+  steeringSensitivity: 1.0,
+  speedLines: true,
+  cameraShake: 1.0,
+  lightTrails: true,
+  rainEffects: true,
+  autoThrottle: false,
+};
 
 export function ordinal(n: number): string {
   const s = ["th", "st", "nd", "rd"];

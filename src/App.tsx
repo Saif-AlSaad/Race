@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CARS, STORAGE_BEST, STORAGE_CAR, STORAGE_WEATHER, TOTAL_LAPS, formatTime, type WeatherMode } from "./game/constants";
+import {
+  CARS, STORAGE_BEST, STORAGE_CAR, STORAGE_WEATHER, STORAGE_SETTINGS,
+  TOTAL_LAPS, formatTime, type WeatherMode, type GameSettings, DEFAULT_SETTINGS,
+} from "./game/constants";
 import { RaceEngine, type RaceResult } from "./game/engine";
 import { getAudio } from "./game/audio";
 import { useInput } from "./hooks/useInput";
@@ -8,7 +11,8 @@ import HUD from "./components/HUD";
 import Countdown from "./components/Countdown";
 import Results from "./components/Results";
 import TouchControls from "./components/TouchControls";
-import { ChevronLeft, Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
+import SettingsModal from "./components/SettingsModal";
+import { ChevronLeft, Pause, Play, RotateCcw, Volume2, VolumeX, Sliders } from "lucide-react";
 import { cn } from "./utils/cn";
 
 type Phase = "menu" | "countdown" | "racing" | "paused" | "finished";
@@ -32,6 +36,19 @@ export default function App() {
   const [weather, setWeatherState] = useState<WeatherMode>(
     () => (localStorage.getItem(STORAGE_WEATHER) as WeatherMode) ?? "night",
   );
+  const [settings, setSettings] = useState<GameSettings>(() => {
+    const saved = localStorage.getItem(STORAGE_SETTINGS);
+    if (saved) {
+      try {
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      } catch {
+        // ignore
+      }
+    }
+    return DEFAULT_SETTINGS;
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   const [muted, setMuted] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
   const [countdownN, setCountdownN] = useState<number | null>(null);
@@ -61,7 +78,11 @@ export default function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const audio = getAudio();
-    const eng = new RaceEngine(canvas, audio, weather);
+    audio.setSfxVolume(settings.sfxVolume);
+    audio.setMusicVolume(settings.musicVolume);
+    audio.setEngineVolume(settings.engineVolume);
+
+    const eng = new RaceEngine(canvas, audio, weather, settings);
     const car = CARS.find((c) => c.id === (localStorage.getItem(STORAGE_CAR) ?? CARS[0].id)) ?? CARS[0];
     eng.setCar(car);
     eng.onLap = (lap, lapMs) => {
@@ -178,7 +199,28 @@ export default function App() {
     });
   }, [pushToast]);
 
-  useInput(() => engineRef.current, onEscape, cycleWeather);
+  const handleUpdateSettings = useCallback((newSettings: GameSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem(STORAGE_SETTINGS, JSON.stringify(newSettings));
+    engineRef.current?.setSettings(newSettings);
+    const audio = getAudio();
+    audio.setSfxVolume(newSettings.sfxVolume);
+    audio.setMusicVolume(newSettings.musicVolume);
+    audio.setEngineVolume(newSettings.engineVolume);
+  }, []);
+
+  const handleResetBestLap = useCallback(() => {
+    localStorage.removeItem(STORAGE_BEST);
+    setBestLap(null);
+    pushToast("RECORD RESET", "Personal best cleared", "sky");
+  }, [pushToast]);
+
+  useInput(
+    () => engineRef.current,
+    onEscape,
+    cycleWeather,
+    () => setSettingsOpen((o) => !o),
+  );
 
   // auto-pause on tab switch
   useEffect(() => {
@@ -231,7 +273,7 @@ export default function App() {
       {/* controls hint */}
       {!isTouch && phase === "racing" && showHint && (
         <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 -translate-x-1/2 animate-fade-up whitespace-nowrap border border-white/10 bg-night-900/60 px-4 py-1.5 text-[10px] font-bold tracking-[0.25em] text-white/55 backdrop-blur-sm">
-          <span className="text-ember-300">SHIFT</span> NITRO · <span className="text-ember-300">SPACE</span> DRIFT · <span className="text-ember-300">V</span> LIGHTING · <span className="text-ember-300">ESC</span> PAUSE
+          <span className="text-ember-300">SHIFT</span> NITRO · <span className="text-ember-300">SPACE</span> DRIFT · <span className="text-ember-300">V</span> LIGHTING · <span className="text-ember-300">O</span> SETTINGS · <span className="text-ember-300">ESC</span> PAUSE
         </div>
       )}
 
@@ -280,6 +322,9 @@ export default function App() {
             >
               <Play className="h-4 w-4" /> RESUME
             </PauseBtn>
+            <PauseBtn onClick={() => setSettingsOpen(true)}>
+              <Sliders className="h-4 w-4" /> SETTINGS
+            </PauseBtn>
             <PauseBtn onClick={startRace}>
               <RotateCcw className="h-4 w-4" /> RESTART RACE
             </PauseBtn>
@@ -303,6 +348,7 @@ export default function App() {
           weather={weather}
           onSelectWeather={selectWeather}
           onStart={startRace}
+          onOpenSettings={() => setSettingsOpen(true)}
           bestLap={bestLap}
           muted={muted}
           onToggleMute={toggleMute}
@@ -310,6 +356,16 @@ export default function App() {
           onToggleMusic={toggleMusic}
         />
       )}
+
+      {/* settings modal */}
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        onUpdateSettings={handleUpdateSettings}
+        bestLap={bestLap}
+        onResetBestLap={handleResetBestLap}
+      />
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
   FOG_DENSITY, CENTRIFUGAL, TOTAL_LAPS, PLAYER_HALF_W, MPH_SCALE,
   BASE_MAX_SPEED, BASE_ACCEL, BRAKE_FORCE, COAST_DECEL, OFFROAD_DECEL,
   OFFROAD_LIMIT, BOOST_TOP_MULT, BOOST_ACCEL_MULT, RIVALS, SCENES, CARS,
-  type CarDef, type WeatherMode,
+  type CarDef, type WeatherMode, type GameSettings, DEFAULT_SETTINGS,
 } from "./constants";
 import { buildTrack, type TrackData, type Segment, type SpritePlacement } from "./track";
 import {
@@ -42,6 +42,7 @@ export interface HudState {
   mode: GameMode;
   weather: WeatherMode;
   mph: number;
+  speedUnit: string;
   gear: number;
   rpm: number;
   boost: number; // 0..100
@@ -140,6 +141,9 @@ export class RaceEngine {
   private opponents: Opponent[] = [];
   private particles: Particle[] = [];
 
+  // settings & custom options
+  private settings: GameSettings = DEFAULT_SETTINGS;
+
   // weather & dynamic lighting
   private weather: WeatherMode = "sunset";
   private lightningTimer = 8;
@@ -158,10 +162,16 @@ export class RaceEngine {
   private readonly playerZ = CAMERA_HEIGHT * (1 / Math.tan(((FIELD_OF_VIEW / 2) * Math.PI) / 180));
   private resizeHandler: () => void;
 
-  constructor(canvas: HTMLCanvasElement, audio: AudioEngine, initialWeather: WeatherMode = "sunset") {
+  constructor(
+    canvas: HTMLCanvasElement,
+    audio: AudioEngine,
+    initialWeather: WeatherMode = "sunset",
+    initialSettings: GameSettings = DEFAULT_SETTINGS,
+  ) {
     this.canvas = canvas;
     this.audio = audio;
     this.weather = initialWeather;
+    this.settings = initialSettings;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("no 2d context");
     this.ctx = ctx;
@@ -185,6 +195,14 @@ export class RaceEngine {
   }
 
   // ---------------- public control ----------------
+
+  getSettings(): GameSettings {
+    return this.settings;
+  }
+
+  setSettings(s: GameSettings) {
+    this.settings = s;
+  }
 
   getWeather(): WeatherMode {
     return this.weather;
@@ -285,10 +303,13 @@ export class RaceEngine {
     const gearTop = maxSpeed / 6;
     const gear = clamp(1 + Math.floor(this.speed / gearTop), 1, 6);
     const rpm = clamp((this.speed % gearTop) / gearTop, 0, 1);
+    const speedMult = this.settings.speedUnit === "kmh" ? 1.60934 : 1.0;
+    const speedVal = Math.round(this.speed * MPH_SCALE * speedMult);
     return {
       mode: this.mode,
       weather: this.weather,
-      mph: Math.round(this.speed * MPH_SCALE),
+      mph: speedVal,
+      speedUnit: this.settings.speedUnit.toUpperCase(),
       gear,
       rpm,
       boost: this.boostMeter,
@@ -417,13 +438,17 @@ export class RaceEngine {
     }
 
     const c = this.ctl();
+    if (this.settings.autoThrottle && this.mode === "racing" && !c.down) {
+      c.up = true;
+    }
     this.ctlCached = c;
     const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed * (this.mode === "attract" ? 0.96 : 1);
     const speedPct = clamp(this.speed / maxSpeed, 0, 1);
     const playerSeg = this.findSegment(this.position + this.playerZ);
 
     // ---- steering ----
-    const dx = dt * 2.3 * speedPct * (0.7 + this.car.grip * 0.42);
+    const sens = this.settings.steeringSensitivity || 1.0;
+    const dx = dt * 2.3 * speedPct * (0.7 + this.car.grip * 0.42) * sens;
     let steer = 0;
     if (c.left) { this.playerX -= dx; steer = -1; }
     if (c.right) { this.playerX += dx; steer = 1; }
@@ -789,8 +814,12 @@ export class RaceEngine {
 
     // shake
     ctx.save();
-    if (this.shake > 0.01) {
-      ctx.translate((Math.random() - 0.5) * this.shake * 14, (Math.random() - 0.5) * this.shake * 10);
+    const shakeMult = this.settings.cameraShake ?? 1.0;
+    if (this.shake > 0.01 && shakeMult > 0) {
+      ctx.translate(
+        (Math.random() - 0.5) * this.shake * 14 * shakeMult,
+        (Math.random() - 0.5) * this.shake * 10 * shakeMult,
+      );
     }
 
     this.renderSky(speedPct, horizon);
@@ -842,41 +871,48 @@ export class RaceEngine {
       }
     }
 
-    // player geometry
-    const dw = this.playerDrawW();
-    const braking = (this.ctlCached?.down ?? false) && this.speed > 300;
-    const sprite = carSprite(this.car, braking, this.weather);
-    const dh = dw * (sprite.canvas.height / sprite.canvas.width);
-    const bounce =
-      Math.sin(this.time * 43) * speedPct * speedPct * height * 0.0035 +
-      (this.offroadNow ? (Math.random() - 0.5) * 5 : 0);
-    const cx = width / 2 + this.steerVis * width * 0.012;
-    const baseY = height * 0.985 + bounce;
+    // In attract mode, we give the camera a clean cinematic fly-through
+    // so the home screen has an unobstructed, gorgeous view of the track and scenery!
+    if (this.mode !== "attract") {
+      const dw = this.playerDrawW();
+      const braking = (this.ctlCached?.down ?? false) && this.speed > 300;
+      const sprite = carSprite(this.car, braking, this.weather);
+      const dh = dw * (sprite.canvas.height / sprite.canvas.width);
+      const bounce =
+        Math.sin(this.time * 43) * speedPct * speedPct * height * 0.0035 +
+        (this.offroadNow ? (Math.random() - 0.5) * 5 : 0);
+      const cx = width / 2 + this.steerVis * width * 0.012;
+      const baseY = height * 0.985 + bounce;
 
-    // volumetric headlights on dark road
-    if (this.weather !== "sunset") {
-      this.renderHeadlights(horizon, cx, baseY, dw, dh);
+      // volumetric headlights on dark road
+      if (this.weather !== "sunset") {
+        this.renderHeadlights(horizon, cx, baseY, dw, dh);
+      }
+
+      // neon underglow & taillight trails
+      if (this.settings.lightTrails) {
+        this.renderUnderglow(cx, baseY, dw, dh);
+        this.renderTaillightTrails();
+      }
+
+      // dust / spray behind car
+      this.renderParticles(false);
+
+      // player car
+      this.renderPlayer(cx, baseY, dw, dh, sprite);
+
+      // sparks / particles in front of car
+      this.renderParticles(true);
     }
 
-    // neon underglow
-    this.renderUnderglow(cx, baseY, dw, dh);
-
-    // taillight trails
-    this.renderTaillightTrails();
-
-    // dust / spray behind car
-    this.renderParticles(false);
-
-    // player car
-    this.renderPlayer(cx, baseY, dw, dh, sprite);
-
-    // sparks / particles in front of car
-    this.renderParticles(true);
-
     // dynamic rain & lens splashes in rain mode
-    this.renderRain();
+    if (this.settings.rainEffects) {
+      this.renderRain();
+    }
 
-    this.renderSpeedLines(speedPct);
+    if (this.settings.speedLines && this.mode !== "attract") {
+      this.renderSpeedLines(speedPct);
+    }
 
     ctx.restore();
     this.shake = Math.max(0, this.shake - 2.4 * (1 / 60));

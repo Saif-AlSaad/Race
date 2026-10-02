@@ -289,33 +289,97 @@ export function carSprite(p: Paint, braking: boolean, weather: WeatherMode = "su
   return info;
 }
 
-// Menu preview — car on a dark studio backdrop
+// Menu preview — car on a dark luxury showroom turntable
 export function carPreview(p: Paint, weather: WeatherMode = "sunset"): string {
-  const { c, g } = make(360, 220);
+  const W = 480, H = 220;
+  const { c, g } = make(W, H);
+  const cx = W / 2;
   const isNight = weather === "night";
   const isRain = weather === "rain";
-  const bg = vGrad(g, 0, 220, [
-    [0, isNight ? "#0d0920" : isRain ? "#0b121e" : "#241a20"],
-    [0.55, isNight ? "#090616" : isRain ? "#070c14" : "#170f16"],
-    [1, isNight ? "#04030a" : isRain ? "#04070a" : "#0a070c"],
-  ]);
+
+  // Studio background gradient
+  const bg = g.createRadialGradient(cx, 100, 10, cx, 110, 260);
+  if (isNight) {
+    bg.addColorStop(0, "#120e28");
+    bg.addColorStop(0.5, "#0b081c");
+    bg.addColorStop(1, "#04030a");
+  } else if (isRain) {
+    bg.addColorStop(0, "#0e1a2c");
+    bg.addColorStop(0.5, "#08111d");
+    bg.addColorStop(1, "#03070d");
+  } else {
+    bg.addColorStop(0, "#281b24");
+    bg.addColorStop(0.5, "#180f19");
+    bg.addColorStop(1, "#0a060d");
+  }
   g.fillStyle = bg;
-  g.fillRect(0, 0, 360, 220);
-  const glowCol = isNight ? (p.accent || "#00e5ff") : isRain ? "#38bdf8" : "#ff9e3d";
-  const glow = g.createRadialGradient(180, 150, 10, 180, 150, 190);
-  glow.addColorStop(0, isNight ? `${glowCol}55` : isRain ? "rgba(56,189,248,0.3)" : "rgba(255,158,61,0.24)");
-  glow.addColorStop(1, "rgba(0,0,0,0)");
-  g.fillStyle = glow;
-  g.fillRect(0, 0, 360, 220);
-  const spr = carSprite(p, false, weather).canvas;
-  g.drawImage(spr, 30, 26, 300, 200);
-  // reflection
+  g.fillRect(0, 0, W, H);
+
+  const accent = p.accent || "#ff9e3d";
+
+  // Ambient neon wall glow
+  const wallGlow = g.createRadialGradient(cx, 130, 20, cx, 130, 240);
+  wallGlow.addColorStop(0, isNight ? `${accent}38` : isRain ? "rgba(56, 189, 248, 0.28)" : "rgba(255, 158, 61, 0.22)");
+  wallGlow.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = wallGlow;
+  g.fillRect(0, 0, W, H);
+
+  // Showroom turntable platform
+  const stageY = 175;
   g.save();
-  g.globalAlpha = isRain ? 0.35 : isNight ? 0.25 : 0.16;
-  g.translate(0, 442);
-  g.scale(1, -1);
-  g.drawImage(spr, 30, 26, 300, 200);
+  // Outer platform rim
+  g.strokeStyle = isNight ? `${accent}88` : isRain ? "rgba(56, 189, 248, 0.65)" : "rgba(255, 195, 110, 0.55)";
+  g.lineWidth = 2.4;
+  g.shadowColor = accent;
+  g.shadowBlur = 14;
+  g.beginPath();
+  g.ellipse(cx, stageY, 190, 32, 0, 0, Math.PI * 2);
+  g.stroke();
+
+  // Inner glossy turntable ring
+  g.lineWidth = 1.2;
+  g.shadowBlur = 6;
+  g.beginPath();
+  g.ellipse(cx, stageY, 155, 26, 0, 0, Math.PI * 2);
+  g.stroke();
   g.restore();
+
+  // Soft contact ground shadow
+  g.fillStyle = "rgba(0, 0, 0, 0.75)";
+  g.beginPath();
+  g.ellipse(cx, stageY - 2, 116, 16, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // Neon underglow cast onto turntable
+  if (isNight || isRain) {
+    const ug = g.createRadialGradient(cx, stageY, 8, cx, stageY, 130);
+    ug.addColorStop(0, `${accent}cc`);
+    ug.addColorStop(0.5, `${accent}35`);
+    ug.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = ug;
+    g.beginPath();
+    g.ellipse(cx, stageY, 130, 22, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // Draw the car sprite perfectly scaled and centered
+  const spr = carSprite(p, false, weather).canvas;
+  const carW = 250;
+  const carH = 166.7;
+  const carX = cx - carW / 2;
+  const carY = stageY - carH + 14; // puts tires right on the stage line
+
+  // Mirror reflection on the glossy turntable
+  g.save();
+  g.globalAlpha = isRain ? 0.32 : isNight ? 0.24 : 0.16;
+  g.translate(0, stageY * 2 - 2);
+  g.scale(1, -1);
+  g.drawImage(spr, carX, carY, carW, carH);
+  g.restore();
+
+  // Render the car
+  g.drawImage(spr, carX, carY, carW, carH);
+
   return c.toDataURL();
 }
 
