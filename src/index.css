@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Russo One", "Chakra Petch", system-ui, sans-serif;
+  --font-body: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+
+  --color-ember-50: #fff3e0;
+  --color-ember-300: #ffc36e;
+  --color-ember-400: #ff9e3d;
+  --color-ember-500: #ff7b1c;
+  --color-ember-600: #e85d10;
+  --color-night-900: #0b0a12;
+  --color-night-800: #141220;
+  --color-night-700: #1e1a2e;
+
+  --animate-count-pop: count-pop 0.72s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-up: fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-marquee: marquee 26s linear infinite;
+  --animate-pulse-ring: pulse-ring 1.6s ease-in-out infinite;
+  --animate-blink: blink 0.9s steps(2, start) infinite;
+}
+
+@keyframes count-pop {
+  0% { transform: scale(2.6) rotate(-6deg); opacity: 0; filter: blur(18px); }
+  35% { transform: scale(1) rotate(0deg); opacity: 1; filter: blur(0); }
+  80% { transform: scale(0.94); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.9; }
+}
+@keyframes fade-up {
+  0% { transform: translateY(26px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.035); }
+}
+@keyframes blink {
+  50% { opacity: 0.15; }
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: #0b0a12;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+canvas { display: block; }
+
+.text-stroke {
+  -webkit-text-stroke: 1px rgba(255, 195, 110, 0.35);
+  color: transparent;
+}
+
+.hud-shadow { text-shadow: 0 2px 18px rgba(0, 0, 0, 0.65); }
+.glow-amber { text-shadow: 0 0 22px rgba(255, 158, 61, 0.55), 0 2px 12px rgba(0,0,0,.6); }
+
+.panel {
+  background: linear-gradient(160deg, rgba(16, 13, 26, 0.72), rgba(10, 8, 18, 0.55));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 195, 110, 0.16);
+}
+
+.corner-frame { position: relative; }
+.corner-frame::before,
+.corner-frame::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: rgba(255, 195, 110, 0.7);
+  border-style: solid;
+}
+.corner-frame::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.corner-frame::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+.vignette {
+  background:
+    radial-gradient(120% 90% at 50% 42%, transparent 55%, rgba(5, 4, 10, 0.55) 100%),
+    linear-gradient(to bottom, rgba(8, 6, 14, 0.35), transparent 18%, transparent 82%, rgba(8, 6, 14, 0.45));
+}
+
+.sun-glow {
+  background: radial-gradient(38% 30% at 68% 34%, rgba(255, 166, 77, 0.28), transparent 70%);
+  mix-blend-mode: screen;
+}
+
+.slash {
+  background: linear-gradient(100deg, transparent 0%, rgba(255, 158, 61, 0.9) 48%, rgba(255, 158, 61, 0.9) 52%, transparent 100%);
+}
+
+::selection { background: rgba(255, 158, 61, 0.4); }

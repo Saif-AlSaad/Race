@@ -1,0 +1,281 @@
+// ------------------------------------------------------------------
+// Procedural Web Audio — engine synth, skid/boost noise, stingers,
+// and a lightweight synthwave loop. Zero audio assets.
+// ------------------------------------------------------------------
+
+export class AudioEngine {
+  private ctx: AudioContext | null = null;
+  private master: GainNode | null = null;
+  private sfx: GainNode | null = null;
+  private musicBus: GainNode | null = null;
+
+  private engOsc1: OscillatorNode | null = null;
+  private engOsc2: OscillatorNode | null = null;
+  private engSub: OscillatorNode | null = null;
+  private engFilter: BiquadFilterNode | null = null;
+  private engGain: GainNode | null = null;
+
+  private skidGain: GainNode | null = null;
+  private boostGain: GainNode | null = null;
+  private boostFilter: BiquadFilterNode | null = null;
+
+  private noiseBuf: AudioBuffer | null = null;
+  private muted = false;
+  private musicOn = true;
+  private musicTimer: number | null = null;
+  private step = 0;
+
+  private ready = false;
+
+  /** must be called from a user gesture */
+  ensure() {
+    if (this.ready) {
+      if (this.ctx && this.ctx.state === "suspended") void this.ctx.resume();
+      return;
+    }
+    const AC: typeof AudioContext | undefined =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    this.ctx = ctx;
+
+    this.master = ctx.createGain();
+    this.master.gain.value = this.muted ? 0 : 0.9;
+    this.master.connect(ctx.destination);
+
+    this.sfx = ctx.createGain();
+    this.sfx.gain.value = 1;
+    this.sfx.connect(this.master);
+
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = 0.4;
+    this.musicBus.connect(this.master);
+
+    // white noise buffer
+    const len = ctx.sampleRate * 1.2;
+    this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = this.noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+    // --- engine voice: 2 detuned saws + sub through a lowpass ---
+    this.engFilter = ctx.createBiquadFilter();
+    this.engFilter.type = "lowpass";
+    this.engFilter.frequency.value = 700;
+    this.engFilter.Q.value = 2.2;
+    this.engGain = ctx.createGain();
+    this.engGain.gain.value = 0;
+    this.engFilter.connect(this.engGain);
+    this.engGain.connect(this.master);
+
+    this.engOsc1 = ctx.createOscillator();
+    this.engOsc1.type = "sawtooth";
+    this.engOsc2 = ctx.createOscillator();
+    this.engOsc2.type = "square";
+    this.engSub = ctx.createOscillator();
+    this.engSub.type = "sine";
+    const g1 = ctx.createGain(); g1.gain.value = 0.5;
+    const g2 = ctx.createGain(); g2.gain.value = 0.22;
+    const g3 = ctx.createGain(); g3.gain.value = 0.55;
+    this.engOsc1.connect(g1); g1.connect(this.engFilter);
+    this.engOsc2.connect(g2); g2.connect(this.engFilter);
+    this.engSub.connect(g3); g3.connect(this.engFilter);
+    this.engOsc1.start(); this.engOsc2.start(); this.engSub.start();
+
+    // --- skid voice: bandpassed noise ---
+    const skidSrc = ctx.createBufferSource();
+    skidSrc.buffer = this.noiseBuf;
+    skidSrc.loop = true;
+    const skidFilter = ctx.createBiquadFilter();
+    skidFilter.type = "bandpass";
+    skidFilter.frequency.value = 900;
+    skidFilter.Q.value = 1.1;
+    this.skidGain = ctx.createGain();
+    this.skidGain.gain.value = 0;
+    skidSrc.connect(skidFilter); skidFilter.connect(this.skidGain); this.skidGain.connect(this.master);
+    skidSrc.start();
+
+    // --- boost whoosh: lowpassed noise ---
+    const boostSrc = ctx.createBufferSource();
+    boostSrc.buffer = this.noiseBuf;
+    boostSrc.loop = true;
+    this.boostFilter = ctx.createBiquadFilter();
+    this.boostFilter.type = "lowpass";
+    this.boostFilter.frequency.value = 400;
+    this.boostGain = ctx.createGain();
+    this.boostGain.gain.value = 0;
+    boostSrc.connect(this.boostFilter); this.boostFilter.connect(this.boostGain); this.boostGain.connect(this.master);
+    boostSrc.start(Math.random());
+
+    this.ready = true;
+    if (this.musicOn) this.startMusic();
+  }
+
+  /** continuous per-frame state */
+  setEngine(rpm: number, throttle: boolean, active: boolean) {
+    if (!this.ctx || !this.engOsc1 || !this.engOsc2 || !this.engSub || !this.engFilter || !this.engGain) return;
+    const t = this.ctx.currentTime;
+    const f = 52 + rpm * 195 + (throttle ? 12 : 0);
+    this.engOsc1.frequency.setTargetAtTime(f, t, 0.03);
+    this.engOsc2.frequency.setTargetAtTime(f * 1.494, t, 0.03);
+    this.engSub.frequency.setTargetAtTime(f * 0.5, t, 0.04);
+    this.engFilter.frequency.setTargetAtTime(280 + rpm * 2600 + (throttle ? 900 : 0), t, 0.05);
+    const vol = active ? (0.045 + rpm * 0.075 + (throttle ? 0.05 : 0)) : 0;
+    this.engGain.gain.setTargetAtTime(this.muted ? 0 : vol, t, 0.06);
+  }
+
+  setSkid(amount: number) {
+    if (!this.ctx || !this.skidGain) return;
+    this.skidGain.gain.setTargetAtTime(this.muted ? 0 : Math.min(0.16, amount * 0.16), this.ctx.currentTime, 0.05);
+  }
+
+  setBoost(amount: number) {
+    if (!this.ctx || !this.boostGain || !this.boostFilter) return;
+    const t = this.ctx.currentTime;
+    this.boostGain.gain.setTargetAtTime(this.muted ? 0 : amount * 0.14, t, 0.05);
+    this.boostFilter.frequency.setTargetAtTime(380 + amount * 1600, t, 0.06);
+  }
+
+  beep(freq: number, dur = 0.14, delay = 0) {
+    if (!this.ctx || !this.sfx || this.muted) return;
+    const t0 = this.ctx.currentTime + delay;
+    const o = this.ctx.createOscillator();
+    o.type = "square";
+    o.frequency.value = freq;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.12, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(this.sfx);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+
+  thud(strength = 1) {
+    if (!this.ctx || !this.sfx || !this.noiseBuf || this.muted) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 500 + strength * 400;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.4 * strength, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    src.connect(lp); lp.connect(g); g.connect(this.sfx);
+    src.start(t);
+    const o = this.ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(130, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.18);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.35 * strength, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+    o.connect(og); og.connect(this.sfx);
+    o.start(t); o.stop(t + 0.3);
+  }
+
+  jingle(win: boolean) {
+    const notes = win ? [523, 659, 784, 1047] : [392, 330, 262];
+    notes.forEach((f, i) => this.beep(f, 0.22, i * 0.14));
+  }
+
+  setMuted(m: boolean) {
+    this.muted = m;
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.03);
+  }
+
+  get isMuted() { return this.muted; }
+
+  setMusicOn(on: boolean) {
+    this.musicOn = on;
+    if (on) this.startMusic();
+    else this.stopMusic();
+  }
+
+  private startMusic() {
+    if (!this.ctx || this.musicTimer !== null) return;
+    this.step = 0;
+    this.musicTimer = window.setInterval(() => this.scheduleStep(), 92);
+  }
+
+  private stopMusic() {
+    if (this.musicTimer !== null) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+  }
+
+  // 8th-note sequencer, 16 steps (2 bars of 4/4) @ ~104 bpm
+  private scheduleStep() {
+    const ctx = this.ctx;
+    const bus = this.musicBus;
+    if (!ctx || !bus || this.muted) { this.step = (this.step + 1) % 16; return; }
+    const t = ctx.currentTime + 0.06;
+    const s = this.step % 16;
+    const stepDur = 60 / 104 / 2;
+
+    // bass riff — A minor
+    const bass = [55, 0, 55, 55, 65.4, 0, 55, 49, 43.65, 0, 43.65, 43.65, 49, 0, 82.4, 73.4][s];
+    if (bass > 0) {
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = bass;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 620;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.16, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + stepDur * 0.92);
+      o.connect(lp); lp.connect(g); g.connect(bus);
+      o.start(t); o.stop(t + stepDur);
+    }
+    // kick on beats
+    if (s % 4 === 0) {
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(44, t + 0.11);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      o.connect(g); g.connect(bus);
+      o.start(t); o.stop(t + 0.16);
+    }
+    // hats off-beat
+    if (s % 2 === 1 && this.noiseBuf) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 7000;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.05, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+      src.connect(hp); hp.connect(g); g.connect(bus);
+      src.start(t); src.stop(t + 0.06);
+    }
+    // pad on bar starts
+    if (s === 0 || s === 8) {
+      const chord = s === 0 ? [220, 261.6, 329.6] : [174.6, 220, 261.6];
+      for (const f of chord) {
+        const o = ctx.createOscillator();
+        o.type = "triangle";
+        o.frequency.value = f;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.028, t + stepDur * 2);
+        g.gain.linearRampToValueAtTime(0.0001, t + stepDur * 8);
+        o.connect(g); g.connect(bus);
+        o.start(t); o.stop(t + stepDur * 8 + 0.05);
+      }
+    }
+    this.step = (this.step + 1) % 16;
+  }
+}
+
+// module-level singleton so it survives React StrictMode remounts
+let singleton: AudioEngine | null = null;
+export function getAudio(): AudioEngine {
+  if (!singleton) singleton = new AudioEngine();
+  return singleton;
+}
