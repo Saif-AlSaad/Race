@@ -28,6 +28,13 @@ export interface Projected {
   w: number;
 }
 
+export interface Skidmark {
+  leftOffset: number;
+  rightOffset: number;
+  width: number;
+  alpha: number;
+}
+
 export interface Segment {
   index: number;
   curve: number;
@@ -41,6 +48,7 @@ export interface Segment {
   clip: number;
   looped: boolean;
   visible: boolean;
+  skids?: Skidmark[];
 }
 
 function proj(): Projected {

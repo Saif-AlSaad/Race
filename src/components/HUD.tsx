@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Flame, Gauge, Route, Zap, Sun, Moon, CloudRain, ShieldCheck } from "lucide-react";
+import { Flame, Gauge, Route, Zap, Sun, Moon, CloudRain, ShieldCheck, Wind } from "lucide-react";
 import type { RaceEngine, HudState } from "../game/engine";
 import { TRACK_NAME, formatTime, ordinal, DIFFICULTIES } from "../game/constants";
 import { cn } from "../utils/cn";
@@ -226,6 +226,20 @@ export default function HUD({
           <div className="flex items-end justify-end gap-3">
             {/* Status chips */}
             <div className="mb-2 flex flex-col items-end gap-1">
+              {hud.drafting && hud.draftFactor > 0.08 && (
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className="flex items-center gap-1.5 bg-gradient-to-r from-sky-400 via-cyan-300 to-emerald-300 px-2 py-0.5 text-[10px] font-black tracking-widest text-black shadow-[0_0_14px_rgba(56,189,248,0.9)] animate-pulse">
+                    <Wind className="h-3 w-3 fill-black text-black" />
+                    SLIPSTREAM {hud.draftRival ? `[${hud.draftRival}]` : ""} +{Math.round(hud.draftFactor * 14)} MPH
+                  </span>
+                  <div className="h-1 w-28 bg-white/10 overflow-hidden rounded-full">
+                    <div
+                      className="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 transition-[width] duration-75 shadow-[0_0_8px_#38bdf8]"
+                      style={{ width: `${Math.min(100, Math.round(hud.draftFactor * 100))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               {hud.boosting && (
                 <span className="flex items-center gap-1 bg-gradient-to-r from-ember-500 to-amber-400 px-2 py-0.5 text-[10px] font-black tracking-widest text-black shadow-[0_0_12px_rgba(255,158,61,0.8)] animate-pulse">
                   <Zap className="h-3 w-3 fill-black" /> NITROUS

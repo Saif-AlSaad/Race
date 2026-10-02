@@ -67,6 +67,9 @@ export interface HudState {
   shiftLights: number;
   cleanRace: boolean;
   difficulty: DifficultyLevel;
+  drafting: boolean;
+  draftFactor: number;
+  draftRival: string | null;
 }
 
 interface Opponent {
@@ -154,6 +157,20 @@ export class RaceEngine {
   private totalLaps: number = TOTAL_LAPS;
   private lateralG: number = 0;
   private cleanRace: boolean = true;
+
+  // Dynamic Car Body Roll & Suspension Simulation
+  private rollAngle: number = 0; // chassis roll angle in radians
+  private pitchOffset: number = 0; // vertical squat/dive displacement (px)
+  private suspensionTravel: number = 0; // road bump displacement
+
+  // Slipstream / Drafting Mechanic
+  private draftingNow: boolean = false;
+  private draftFactor: number = 0; // 0..1
+  private draftTarget: Opponent | null = null;
+  private aeroStreamers: { x: number; y: number; length: number; speed: number; alpha: number; side: number }[] = [];
+
+  // Persistent Skidmarks tracking
+  private lastSkidSegIndex: number = -1;
 
   // settings & custom options
   private settings: GameSettings = DEFAULT_SETTINGS;
@@ -311,6 +328,7 @@ export class RaceEngine {
       this.audio.setEngine(0, false, false);
       this.audio.setSkid(0);
       this.audio.setBoost(0);
+      this.audio.setDraft(0);
     } else if (!p && this.mode === "paused") {
       this.mode = "racing";
     }
@@ -376,6 +394,9 @@ export class RaceEngine {
       shiftLights,
       cleanRace: this.cleanRace,
       difficulty: this.difficulty,
+      drafting: this.draftingNow,
+      draftFactor: Number(this.draftFactor.toFixed(2)),
+      draftRival: this.draftTarget?.name ?? null,
     };
   }
 
@@ -386,6 +407,7 @@ export class RaceEngine {
     this.audio.setEngine(0, false, false);
     this.audio.setSkid(0);
     this.audio.setBoost(0);
+    this.audio.setDraft(0);
   }
 
   // ---------------- internals ----------------
@@ -421,6 +443,14 @@ export class RaceEngine {
     this.positionNow = 8;
     this.cleanRace = true;
     this.lateralG = 0;
+    this.rollAngle = 0;
+    this.pitchOffset = 0;
+    this.suspensionTravel = 0;
+    this.draftingNow = false;
+    this.draftFactor = 0;
+    this.draftTarget = null;
+    this.aeroStreamers = [];
+    this.lastSkidSegIndex = -1;
     this.particles = [];
     this.spawnGrid(false);
   }
@@ -521,10 +551,103 @@ export class RaceEngine {
     // ---- drift ----
     this.driftNow = c.drift && Math.abs(steer) > 0 && speedPct > 0.42;
 
-    // ---- throttle / brake ----
+    // ---- dynamic car body roll & suspension simulation ----
+    // Lateral roll: chassis leans outward against cornering centrifugal force,
+    // plus counter-steering lean during drifts
+    const steerRoll = this.steerVis * (0.055 + (this.driftNow ? 0.065 : 0));
+    const curveCentrifugalRoll = (playerSeg.curve * speedPct * speedPct) * 0.038;
+    const targetRoll = -(steerRoll + curveCentrifugalRoll);
+    this.rollAngle = lerp(this.rollAngle, targetRoll, 1 - Math.exp(-dt * 12));
+
+    // Pitch: Dive on braking, Squat on acceleration/boost
+    let targetPitch = 0;
+    if (this.boostNow) targetPitch = 5.2;
+    else if (c.up && this.speed < maxSpeed) targetPitch = 3.0;
+    else if (c.down && this.speed > 350) targetPitch = -5.4;
+    const slope = (playerSeg.p2.world.y - playerSeg.p1.world.y) * 0.16;
+    targetPitch += clamp(slope, -4, 4);
+    this.pitchOffset = lerp(this.pitchOffset, targetPitch, 1 - Math.exp(-dt * 10));
+
+    // Road bump suspension oscillation
+    this.suspensionTravel = Math.sin(this.time * 38) * speedPct * speedPct * 2.2 +
+      (this.offroadNow ? (Math.random() - 0.5) * 6 : 0);
+
+    // ---- persistent skidmarks stamping ----
+    const isSkidding = this.driftNow || (c.down && this.speed > 800) || (this.offroadNow && this.speed > 1600);
+    if (isSkidding && this.speed > 350) {
+      const pSeg = this.findSegment(this.position + this.playerZ);
+      if (!pSeg.skids) pSeg.skids = [];
+      if (this.lastSkidSegIndex !== pSeg.index) {
+        this.lastSkidSegIndex = pSeg.index;
+        const skidAlpha = clamp(this.driftNow ? 0.72 : 0.48, 0.25, 0.78);
+        const tireTrackW = 0.28;
+        pSeg.skids.push({
+          leftOffset: this.playerX - tireTrackW,
+          rightOffset: this.playerX + tireTrackW,
+          width: 0.038,
+          alpha: skidAlpha,
+        });
+        if (pSeg.skids.length > 5) pSeg.skids.shift();
+      }
+    } else {
+      this.lastSkidSegIndex = -1;
+    }
+
+    // ---- slipstream / drafting detection ----
+    let bestDraft: Opponent | null = null;
+    let closestDraftDist = Infinity;
+    if (this.mode === "racing" && this.speed > 1600) {
+      for (const o of this.opponents) {
+        let relZ = o.total - this.playerTotal;
+        // In front between 220 and 1600 world units (~1 to 9 segments ahead)
+        if (relZ > 220 && relZ < 1600) {
+          const latOffsetDiff = Math.abs(o.offset - this.playerX);
+          if (latOffsetDiff < 0.42 && relZ < closestDraftDist) {
+            closestDraftDist = relZ;
+            bestDraft = o;
+          }
+        }
+      }
+    }
+
+    if (bestDraft) {
+      this.draftingNow = true;
+      this.draftTarget = bestDraft;
+      const distRatio = 1 - (closestDraftDist - 220) / (1600 - 220);
+      const targetDraft = clamp(distRatio * 1.15, 0.2, 1.0);
+      this.draftFactor = lerp(this.draftFactor, targetDraft, 1 - Math.exp(-dt * 4.5));
+    } else {
+      this.draftingNow = false;
+      this.draftTarget = null;
+      this.draftFactor = Math.max(0, this.draftFactor - dt * 2.8);
+    }
+
+    // Aerodynamic streamline streamers
+    if (this.draftFactor > 0.15 && Math.random() < dt * 42) {
+      this.aeroStreamers.push({
+        x: (Math.random() - 0.5) * (this.width * 0.45),
+        y: this.height * 0.48 + Math.random() * (this.height * 0.2),
+        length: 45 + Math.random() * 80,
+        speed: 1300 + Math.random() * 800,
+        alpha: 0.35 + this.draftFactor * 0.55,
+        side: Math.random() < 0.5 ? -1 : 1,
+      });
+    }
+    for (let i = this.aeroStreamers.length - 1; i >= 0; i--) {
+      const str = this.aeroStreamers[i];
+      str.y += str.speed * dt;
+      str.alpha -= dt * 1.6;
+      if (str.y > this.height || str.alpha <= 0) {
+        this.aeroStreamers.splice(i, 1);
+      }
+    }
+
+    // ---- throttle / brake with slipstream tow ----
     this.boostNow = c.boost && this.boostMeter > 1 && this.speed > 2400;
-    const topNow = maxSpeed * (this.boostNow ? BOOST_TOP_MULT : 1);
-    if (c.up) this.speed += BASE_ACCEL * this.car.accel * transMult * (this.boostNow ? BOOST_ACCEL_MULT : 1) * dt;
+    const draftTopMult = 1 + this.draftFactor * 0.11;
+    const draftAccelMult = 1 + this.draftFactor * 0.38;
+    const topNow = maxSpeed * (this.boostNow ? BOOST_TOP_MULT : 1) * draftTopMult;
+    if (c.up) this.speed += BASE_ACCEL * this.car.accel * transMult * (this.boostNow ? BOOST_ACCEL_MULT : 1) * draftAccelMult * dt;
     else if (c.down) this.speed += BRAKE_FORCE * dt;
     else this.speed += COAST_DECEL * dt;
     if (this.driftNow) this.speed -= maxSpeed * 0.11 * dt;
@@ -542,7 +665,7 @@ export class RaceEngine {
 
     // ---- boost meter ----
     if (this.boostNow) this.boostMeter = Math.max(0, this.boostMeter - 30 * dt);
-    else this.boostMeter = Math.min(maxBoostCap, this.boostMeter + (this.driftNow ? 28 : this.offroadNow ? 1.5 : 8) * dt);
+    else this.boostMeter = Math.min(maxBoostCap, this.boostMeter + (this.driftNow ? 28 : this.draftFactor > 0.3 ? 22 : this.offroadNow ? 1.5 : 8) * dt);
     this.fovBoost = lerp(this.fovBoost, this.boostNow ? 1 : 0, 1 - Math.exp(-dt * 4));
 
     // over-top-speed ease back
@@ -607,6 +730,7 @@ export class RaceEngine {
     this.audio.setEngine(rpm * (this.boostNow ? 1.12 : 1), c.up && this.speed < maxSpeed, true);
     this.audio.setSkid(skidAmt * speedPct);
     this.audio.setBoost(this.boostNow ? 1 : 0);
+    this.audio.setDraft(this.mode === "racing" ? this.draftFactor : 0);
   }
 
   private updateOpponents(dt: number) {
@@ -637,6 +761,9 @@ export class RaceEngine {
         else if (rel > this.track.length / 2) rel -= this.track.length;
         if (rel > 0 && rel < 760 && Math.abs(b.offset - o.offset) < 0.42) {
           threatSpeed = Math.min(threatSpeed, b.speed);
+        } else if (rel >= 760 && rel < 1400 && Math.abs(b.offset - o.offset) < 0.38) {
+          // AI slipstream suction tow when chasing leading cars
+          target *= 1.07;
         }
       }
       if (threatSpeed < Infinity) target = Math.min(target, threatSpeed * 0.94);
@@ -946,9 +1073,10 @@ export class RaceEngine {
       const dh = dw * (sprite.canvas.height / sprite.canvas.width);
       const bounce =
         Math.sin(this.time * 43) * speedPct * speedPct * height * 0.0035 +
-        (this.offroadNow ? (Math.random() - 0.5) * 5 : 0);
+        (this.offroadNow ? (Math.random() - 0.5) * 5 : 0) +
+        this.suspensionTravel;
       const cx = width / 2 + this.steerVis * width * 0.012;
-      const baseY = height * 0.985 + bounce;
+      const baseY = height * 0.985 + bounce + this.pitchOffset;
 
       // volumetric headlights on dark road
       if (this.weather !== "sunset") {
@@ -966,6 +1094,11 @@ export class RaceEngine {
 
       // player car
       this.renderPlayer(cx, baseY, dw, dh, sprite);
+
+      // aerodynamic slipstream streamers
+      if (this.draftFactor > 0.05) {
+        this.renderAeroStreamers();
+      }
 
       // sparks / particles in front of car
       this.renderParticles(true);
@@ -1091,6 +1224,29 @@ export class RaceEngine {
       this.poly(x1 - w1 * 0.32, y1, x1 + w1 * 0.32, y1, x2 + w2 * 0.32, y2, x2 - w2 * 0.32, y2);
     }
 
+    // persistent rubber tire skidmarks
+    if (seg.skids && seg.skids.length > 0) {
+      for (const skid of seg.skids) {
+        const skidAlpha = skid.alpha * (1 - seg.fog * 0.65);
+        if (skidAlpha <= 0.02) continue;
+        ctx.fillStyle = `rgba(16, 12, 20, ${skidAlpha})`;
+
+        // Left tire skidmark
+        const lx1 = x1 + skid.leftOffset * w1;
+        const lx2 = x2 + skid.leftOffset * w2;
+        const lw1 = skid.width * w1;
+        const lw2 = skid.width * w2;
+        this.poly(lx1 - lw1, y1, lx1 + lw1, y1, lx2 + lw2, y2, lx2 - lw2, y2);
+
+        // Right tire skidmark
+        const rx1 = x1 + skid.rightOffset * w1;
+        const rx2 = x2 + skid.rightOffset * w2;
+        const rw1 = skid.width * w1;
+        const rw2 = skid.width * w2;
+        this.poly(rx1 - rw1, y1, rx1 + rw1, y1, rx2 + rw2, y2, rx2 - rw2, y2);
+      }
+    }
+
     // edge glow lines
     ctx.fillStyle = palette.edge;
     const e1 = w1 * 0.014, e2 = w2 * 0.014;
@@ -1173,30 +1329,46 @@ export class RaceEngine {
     if (dw < 1.5) return;
     dw = Math.min(dw, this.width * 0.86);
     const dh = dw * (o.sprite.canvas.height / o.sprite.canvas.width);
-    const dx = sx - dw / 2;
-    const dy = sy - dh;
     const clipY = seg.clip;
+
+    // dynamic body roll based on road curvature and steering wander
+    const rivalRoll = -seg.curve * 0.038;
+
+    this.ctx.save();
+    this.ctx.translate(sx, sy);
+    if (Math.abs(rivalRoll) > 0.002) {
+      this.ctx.rotate(rivalRoll);
+    }
+
+    // dynamic contact shadow under rival tires
+    const shadowAlpha = 0.38 * (1 - seg.fog * 0.5);
+    this.ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
+    this.ctx.beginPath();
+    this.ctx.ellipse(0, 0, dw * 0.44, dh * 0.12, 0, 0, Math.PI * 2);
+    this.ctx.fill();
 
     // in dark environments, draw red LED taillight halo behind rival
     if (this.weather !== "sunset") {
-      const glow = this.ctx.createRadialGradient(sx, sy - dh * 0.5, 2, sx, sy - dh * 0.5, dw * 0.55);
+      const glow = this.ctx.createRadialGradient(0, -dh * 0.5, 2, 0, -dh * 0.5, dw * 0.55);
       glow.addColorStop(0, "rgba(255, 25, 45, 0.75)");
       glow.addColorStop(0.5, "rgba(255, 10, 30, 0.2)");
       glow.addColorStop(1, "rgba(0,0,0,0)");
       this.ctx.fillStyle = glow;
       this.ctx.beginPath();
-      this.ctx.arc(sx, sy - dh * 0.5, dw * 0.55, 0, Math.PI * 2);
+      this.ctx.arc(0, -dh * 0.5, dw * 0.55, 0, Math.PI * 2);
       this.ctx.fill();
     }
 
-    if (clipY && dy + dh > clipY) {
-      const visH = clipY - dy;
-      if (visH <= 0) return;
-      const srcH = (o.sprite.canvas.height * visH) / dh;
-      this.ctx.drawImage(o.sprite.canvas, 0, 0, o.sprite.canvas.width, srcH, dx, dy, dw, visH);
+    if (clipY && sy > clipY) {
+      const visH = clipY - (sy - dh);
+      if (visH > 0) {
+        const srcH = (o.sprite.canvas.height * visH) / dh;
+        this.ctx.drawImage(o.sprite.canvas, 0, 0, o.sprite.canvas.width, srcH, -dw / 2, -dh, dw, visH);
+      }
     } else {
-      this.ctx.drawImage(o.sprite.canvas, dx, dy, dw, dh);
+      this.ctx.drawImage(o.sprite.canvas, -dw / 2, -dh, dw, dh);
     }
+    this.ctx.restore();
   }
 
   private playerDrawW(): number {
@@ -1369,12 +1541,22 @@ export class RaceEngine {
     sprite: SpriteInfo,
   ) {
     const { ctx } = this;
-    const tilt = this.steerVis * 0.05 + (this.driftNow ? this.steerVis * 0.08 : 0);
+    // Dynamic car body roll: chassis leans with rollAngle
+    const roll = this.rollAngle;
+    const rollShiftX = -roll * dw * 0.28;
+
+    // Contact shadow anchored to the road underneath the tires
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.44)";
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY, dw * 0.46, dh * 0.13, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
     // nitro flames
     if (this.boostNow) {
       for (const sx of [-1, 1]) {
-        const fx = cx + sx * dw * 0.187;
+        const fx = cx + rollShiftX + sx * dw * 0.187;
         const fy = baseY - dh * 0.104;
         const len = dw * (0.1 + Math.random() * 0.09);
         const grd = ctx.createLinearGradient(fx, fy, fx, fy + len);
@@ -1394,18 +1576,49 @@ export class RaceEngine {
     // record taillight history for light trails
     const brakeY = baseY - dh * 0.52;
     this.taillightHistory.push({
-      leftX: cx - dw * 0.33,
+      leftX: cx + rollShiftX - dw * 0.33,
       leftY: brakeY,
-      rightX: cx + dw * 0.33,
+      rightX: cx + rollShiftX + dw * 0.33,
       rightY: brakeY,
       time: this.time,
     });
     while (this.taillightHistory.length > 16) this.taillightHistory.shift();
 
+    // Draw player car rotated around tire contact base
     ctx.save();
-    ctx.translate(cx, baseY - dh / 2);
-    ctx.rotate(tilt);
-    ctx.drawImage(sprite.canvas, -dw / 2, -dh / 2, dw, dh);
+    ctx.translate(cx + rollShiftX, baseY);
+    ctx.rotate(roll);
+    ctx.drawImage(sprite.canvas, -dw / 2, -dh, dw, dh);
+    ctx.restore();
+  }
+
+  private renderAeroStreamers() {
+    if (this.aeroStreamers.length === 0) return;
+    const { ctx, width } = this;
+    ctx.save();
+    ctx.lineCap = "round";
+    for (const str of this.aeroStreamers) {
+      const sx = width / 2 + str.x;
+      const alpha = clamp(str.alpha * this.draftFactor, 0, 0.85);
+      if (alpha <= 0.01) continue;
+
+      const grad = ctx.createLinearGradient(sx, str.y - str.length, sx, str.y);
+      grad.addColorStop(0, "rgba(56, 189, 248, 0)");
+      grad.addColorStop(0.5, `rgba(186, 230, 253, ${alpha * 0.75})`);
+      grad.addColorStop(1, `rgba(255, 255, 255, ${alpha})`);
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(sx - str.side * 6, str.y - str.length);
+      ctx.quadraticCurveTo(sx, str.y - str.length * 0.4, sx + str.side * 8, str.y);
+      ctx.stroke();
+
+      // soft blue vortex glow
+      ctx.strokeStyle = `rgba(14, 165, 233, ${alpha * 0.35})`;
+      ctx.lineWidth = 5;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

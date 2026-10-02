@@ -18,6 +18,8 @@ export class AudioEngine {
   private skidGain: GainNode | null = null;
   private boostGain: GainNode | null = null;
   private boostFilter: BiquadFilterNode | null = null;
+  private draftGain: GainNode | null = null;
+  private draftFilter: BiquadFilterNode | null = null;
 
   private noiseBuf: AudioBuffer | null = null;
   private muted = false;
@@ -109,6 +111,19 @@ export class AudioEngine {
     boostSrc.connect(this.boostFilter); this.boostFilter.connect(this.boostGain); this.boostGain.connect(this.master);
     boostSrc.start(Math.random());
 
+    // --- draft slipstream whoosh: resonant bandpassed air vortex ---
+    const draftSrc = ctx.createBufferSource();
+    draftSrc.buffer = this.noiseBuf;
+    draftSrc.loop = true;
+    this.draftFilter = ctx.createBiquadFilter();
+    this.draftFilter.type = "bandpass";
+    this.draftFilter.frequency.value = 1600;
+    this.draftFilter.Q.value = 3.2;
+    this.draftGain = ctx.createGain();
+    this.draftGain.gain.value = 0;
+    draftSrc.connect(this.draftFilter); this.draftFilter.connect(this.draftGain); this.draftGain.connect(this.master);
+    draftSrc.start(Math.random());
+
     this.ready = true;
     if (this.musicOn) this.startMusic();
   }
@@ -154,6 +169,13 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.boostGain.gain.setTargetAtTime(this.muted ? 0 : amount * 0.14, t, 0.05);
     this.boostFilter.frequency.setTargetAtTime(380 + amount * 1600, t, 0.06);
+  }
+
+  setDraft(amount: number) {
+    if (!this.ctx || !this.draftGain || !this.draftFilter) return;
+    const t = this.ctx.currentTime;
+    this.draftGain.gain.setTargetAtTime(this.muted ? 0 : Math.min(0.2, amount * 0.2), t, 0.08);
+    this.draftFilter.frequency.setTargetAtTime(1200 + amount * 1800, t, 0.08);
   }
 
   beep(freq: number, dur = 0.14, delay = 0) {
