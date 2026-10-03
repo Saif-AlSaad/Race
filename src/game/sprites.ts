@@ -976,6 +976,569 @@ export function carSprite(
 }
 
 // ------------------------------------------------------------------
+// PROCEDURAL CAR ANIMATIONS & DYNAMIC 3D VEHICLE LAYERS
+// ------------------------------------------------------------------
+
+/** Renders steered front wheels underneath the front splitter / arches */
+export function renderSteeredFrontWheels(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  baseY: number,
+  dw: number,
+  dh: number,
+  steerAngle: number, // in radians: -0.6 to +0.6
+  wheelStyle: WheelStyle,
+  caliperColor: string,
+  isDrifting: boolean,
+) {
+  if (Math.abs(steerAngle) < 0.03 && !isDrifting) return;
+
+  const scale = dw / 340;
+  const wheelW = 32 * scale;
+  const wheelH = 46 * scale;
+  const frontY = baseY - dh * 0.14;
+
+  ctx.save();
+
+  // Draw front splitter aerodynamic shadow
+  ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.beginPath();
+  ctx.ellipse(cx, frontY + wheelH * 0.42, dw * 0.42, dh * 0.06, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Left and Right front wheels
+  for (const sx of [-1, 1]) {
+    const wx = cx + sx * (116 * scale);
+    ctx.save();
+    ctx.translate(wx, frontY);
+
+    // Negative camber + steering yaw rotation
+    const steerEff = steerAngle * 0.85;
+    ctx.rotate(steerEff);
+    // Camber lean
+    ctx.transform(1, 0, -steerEff * 0.18, 1, 0, 0);
+
+    // 1. Tire outer tread profile
+    ctx.fillStyle = "#07080c";
+    rr(ctx, -wheelW / 2, -wheelH / 2, wheelW, wheelH, 6 * scale);
+    ctx.fill();
+
+    // Tread rubber gradient
+    const trGrad = ctx.createLinearGradient(-wheelW / 2, 0, wheelW / 2, 0);
+    trGrad.addColorStop(0, "#050608");
+    trGrad.addColorStop(0.3, "#1c1e24");
+    trGrad.addColorStop(0.7, "#282a33");
+    trGrad.addColorStop(1, "#050608");
+    ctx.fillStyle = trGrad;
+    rr(ctx, -wheelW / 2 + 2 * scale, -wheelH / 2 + 2 * scale, wheelW - 4 * scale, wheelH - 4 * scale, 5 * scale);
+    ctx.fill();
+
+    // Tire tread grooves (perspective angled with steer)
+    ctx.strokeStyle = "rgba(0,0,0,0.6)";
+    ctx.lineWidth = 1.2 * scale;
+    for (const gx of [-wheelW * 0.22, 0, wheelW * 0.22]) {
+      ctx.beginPath();
+      ctx.moveTo(gx, -wheelH * 0.4);
+      ctx.lineTo(gx, wheelH * 0.4);
+      ctx.stroke();
+    }
+
+    // 2. Visible wheel rim face (if wheel is steered outward towards viewer)
+    const isOutward = (sx < 0 && steerAngle > 0.08) || (sx > 0 && steerAngle < -0.08);
+    if (isOutward || Math.abs(steerAngle) > 0.22) {
+      const rimR = wheelW * 0.42;
+      // Carbon-ceramic rotor disc
+      ctx.fillStyle = "#4a4e59";
+      ctx.beginPath();
+      ctx.arc(0, 0, rimR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Caliper
+      ctx.fillStyle = caliperColor;
+      ctx.beginPath();
+      ctx.arc(0, 0, rimR * 1.05, -0.4, 0.4);
+      ctx.lineWidth = 3 * scale;
+      ctx.strokeStyle = caliperColor;
+      ctx.stroke();
+
+      // Rim spokes
+      ctx.strokeStyle = wheelStyle === "bronze_dish" ? "#b45309" : "#cbd5e1";
+      ctx.lineWidth = 1.6 * scale;
+      for (let i = 0; i < 5; i++) {
+        const a = (i * 2 * Math.PI) / 5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(a) * rimR * 0.9, Math.sin(a) * rimR * 0.9);
+        ctx.stroke();
+      }
+
+      // Center nut
+      ctx.fillStyle = wheelStyle === "centerlock_star" ? "#ef4444" : "#1e293b";
+      ctx.beginPath();
+      ctx.arc(0, 0, rimR * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+/** Renders high-speed spinning alloy wheels with motion blur & glowing brake rotors */
+export function renderAnimatedRearWheels(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  baseY: number,
+  dw: number,
+  dh: number,
+  wheelAngle: number,
+  wheelStyle: WheelStyle,
+  caliperColor: string,
+  rotorHeat: number, // 0..1
+  speedPct: number,
+  accentColor: string,
+) {
+  const scale = dw / 340;
+  const wheelR = 15.5 * scale;
+  const wheelY = baseY - 42 * (dh / 220);
+
+  for (const sx of [-1, 1]) {
+    const wx = cx + sx * (124 * scale);
+    ctx.save();
+    ctx.translate(wx, wheelY);
+
+    // 1. Carbon-Ceramic Brake Rotor with Dynamic Thermal Incandescent Glow
+    if (rotorHeat > 0.04) {
+      const glowR = wheelR * (1.1 + rotorHeat * 0.5);
+      const heatGrad = ctx.createRadialGradient(0, 0, wheelR * 0.2, 0, 0, glowR);
+      heatGrad.addColorStop(0, `rgba(255, 245, 180, ${Math.min(0.98, rotorHeat * 1.1)})`);
+      heatGrad.addColorStop(0.35, `rgba(255, 90, 20, ${Math.min(0.9, rotorHeat * 0.95)})`);
+      heatGrad.addColorStop(0.7, `rgba(220, 20, 10, ${Math.min(0.65, rotorHeat * 0.7)})`);
+      heatGrad.addColorStop(1, "rgba(180, 0, 0, 0)");
+
+      ctx.fillStyle = heatGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, glowR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cross-drilled cooling vents glowing orange
+      ctx.strokeStyle = `rgba(255, 230, 120, ${rotorHeat * 0.9})`;
+      ctx.lineWidth = 1.2 * scale;
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3 + wheelAngle;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * 4 * scale, Math.sin(a) * 4 * scale);
+        ctx.lineTo(Math.cos(a) * 13 * scale, Math.sin(a) * 13 * scale);
+        ctx.stroke();
+      }
+    }
+
+    // 2. High-Performance Multi-Piston Brake Caliper
+    ctx.save();
+    ctx.fillStyle = caliperColor;
+    ctx.strokeStyle = caliperColor;
+    ctx.lineWidth = 4 * scale;
+    const calAngle = sx < 0 ? Math.PI * 0.9 : -Math.PI * 0.1;
+    ctx.beginPath();
+    ctx.arc(0, 0, wheelR * 1.05, calAngle - 0.52, calAngle + 0.52);
+    ctx.stroke();
+    // Caliper branding badge
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(sx < 0 ? -13 * scale : 9 * scale, -2.5 * scale, 3 * scale, 5 * scale);
+    ctx.restore();
+
+    // 3. Dynamic Rotating Wheel Rims
+    if (speedPct < 0.28) {
+      // Crisp spoke rendering with rotation
+      ctx.save();
+      ctx.rotate(wheelAngle);
+
+      if (wheelStyle === "centerlock_star") {
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 2.4 * scale;
+        for (let i = 0; i < 5; i++) {
+          const a = (i * 2 * Math.PI) / 5;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * 13 * scale, Math.sin(a) * 13 * scale);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(0, 0, 4 * scale, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (wheelStyle === "bronze_dish") {
+        ctx.strokeStyle = "#b45309";
+        ctx.lineWidth = 1.8 * scale;
+        for (let i = 0; i < 10; i++) {
+          const a = (i * 2 * Math.PI) / 10;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * 13 * scale, Math.sin(a) * 13 * scale);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = "#e2e8f0";
+        ctx.lineWidth = 1.4 * scale;
+        ctx.beginPath();
+        ctx.arc(0, 0, 13 * scale, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "#78350f";
+        ctx.beginPath();
+        ctx.arc(0, 0, 3.5 * scale, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (wheelStyle === "turbofan") {
+        ctx.fillStyle = "#1e212b";
+        ctx.beginPath();
+        ctx.arc(0, 0, 13 * scale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = accentColor;
+        ctx.lineWidth = 1.5 * scale;
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(255,255,255,0.45)";
+        ctx.lineWidth = 1.2 * scale;
+        for (let i = 0; i < 6; i++) {
+          const a = (i * Math.PI) / 3;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 4 * scale, Math.sin(a) * 4 * scale);
+          ctx.lineTo(Math.cos(a + 0.3) * 12 * scale, Math.sin(a + 0.3) * 12 * scale);
+          ctx.stroke();
+        }
+      } else if (wheelStyle === "muscle_deep") {
+        ctx.strokeStyle = "#334155";
+        ctx.lineWidth = 3.4 * scale;
+        for (let i = 0; i < 5; i++) {
+          const a = (i * 2 * Math.PI) / 5;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * 13 * scale, Math.sin(a) * 13 * scale);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1.8 * scale;
+        ctx.beginPath();
+        ctx.arc(0, 0, 13 * scale, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.arc(0, 0, 4 * scale, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 1.6 * scale;
+        for (let i = 0; i < 5; i++) {
+          const a = (i * 2 * Math.PI) / 5;
+          const ax = Math.cos(a) * 13 * scale, ay = Math.sin(a) * 13 * scale;
+          ctx.beginPath();
+          ctx.moveTo(0, 0); ctx.lineTo(ax - 2 * scale, ay);
+          ctx.moveTo(0, 0); ctx.lineTo(ax + 2 * scale, ay);
+          ctx.stroke();
+        }
+        ctx.fillStyle = "#1e293b";
+        ctx.beginPath();
+        ctx.arc(0, 0, 3.8 * scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    } else {
+      // 4. High-Speed Rotational Motion Blur Disc
+      const blurGrad = ctx.createRadialGradient(0, 0, 2 * scale, 0, 0, wheelR * 0.95);
+      blurGrad.addColorStop(0, "#2a303d");
+      blurGrad.addColorStop(0.4, "#4b5568");
+      blurGrad.addColorStop(0.7, "#1e2430");
+      blurGrad.addColorStop(1, "#374151");
+      ctx.fillStyle = blurGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, wheelR * 0.92, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Spinning specular gleam rings
+      ctx.save();
+      ctx.rotate(wheelAngle * 2.2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 1.8 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, wheelR * 0.68, -0.6, 0.6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, wheelR * 0.68, Math.PI - 0.6, Math.PI + 0.6);
+      ctx.stroke();
+      ctx.restore();
+
+      // Centerlock nut
+      ctx.fillStyle = wheelStyle === "centerlock_star" ? "#ef4444" : "#0f172a";
+      ctx.beginPath();
+      ctx.arc(0, 0, 3.8 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+}
+
+/** Renders active aerodynamic rear wings (Airbrake on braking, DRS on boost) */
+export function renderActiveWing(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  baseY: number,
+  dw: number,
+  dh: number,
+  bodyStyle: BodyStyle,
+  baseColor: string,
+  accentColor: string,
+  airbrakeAmount: number, // 0..1
+  drsAmount: number, // 0..1
+  roll: number,
+) {
+  if (airbrakeAmount < 0.02 && drsAmount < 0.02) return;
+
+  const scale = dw / 340;
+  const wingBaseY = baseY - dh * 0.88;
+
+  ctx.save();
+  ctx.translate(cx, wingBaseY);
+  ctx.rotate(roll * 0.4);
+
+  if (bodyStyle === "proto") {
+    // Le Mans Swan-Neck Wing with Active Airbrake Angle
+    const wingW = 264 * scale;
+    const wingH = 16 * scale;
+    const pitchLift = -airbrakeAmount * 18 * scale + drsAmount * 6 * scale;
+    const flapAngle = airbrakeAmount * 0.38 - drsAmount * 0.16;
+
+    ctx.save();
+    ctx.translate(0, pitchLift);
+    ctx.rotate(flapAngle);
+
+    // Hydraulic actuator struts extended
+    if (airbrakeAmount > 0.05) {
+      ctx.strokeStyle = "#94a3b8";
+      ctx.lineWidth = 3 * scale;
+      for (const sx of [-40, 40]) {
+        ctx.beginPath();
+        ctx.moveTo(sx * scale, 0);
+        ctx.lineTo(sx * scale, -pitchLift);
+        ctx.stroke();
+      }
+    }
+
+    // Active wing blade
+    ctx.fillStyle = "#0f1016";
+    rr(ctx, -wingW / 2, -wingH / 2, wingW, wingH, 5 * scale);
+    ctx.fill();
+    ctx.fillStyle = baseColor;
+    rr(ctx, -wingW / 2, -wingH / 2, wingW, 3.5 * scale, 1.5 * scale);
+    ctx.fill();
+
+    // Airbrake flashing high-intensity red LED strip
+    if (airbrakeAmount > 0.25) {
+      ctx.shadowColor = "#ff1744";
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = "#ffffff";
+      rr(ctx, -wingW * 0.38, -2 * scale, wingW * 0.76, 4 * scale, 2 * scale);
+      ctx.fill();
+    }
+
+    // Endplates
+    ctx.fillStyle = accentColor;
+    rr(ctx, -wingW / 2 - 4 * scale, -wingH / 2 - 8 * scale, 7 * scale, 34 * scale, 3 * scale);
+    ctx.fill();
+    rr(ctx, wingW / 2 - 3 * scale, -wingH / 2 - 8 * scale, 7 * scale, 34 * scale, 3 * scale);
+    ctx.fill();
+
+    ctx.restore();
+  } else if (bodyStyle === "cyber") {
+    // Dual Motorized Split Winglets (Active Vectoring)
+    const flapW = 88 * scale;
+    const flapH = 14 * scale;
+    const pitchLift = -airbrakeAmount * 14 * scale;
+
+    for (const sx of [-1, 1]) {
+      const wx = sx * 70 * scale;
+      ctx.save();
+      ctx.translate(wx, pitchLift);
+      ctx.rotate(sx * roll * 0.5 + airbrakeAmount * 0.35);
+
+      ctx.fillStyle = "#12141c";
+      rr(ctx, -flapW / 2, -flapH / 2, flapW, flapH, 3 * scale);
+      ctx.fill();
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 1.8 * scale;
+      ctx.stroke();
+
+      if (airbrakeAmount > 0.2) {
+        ctx.fillStyle = "#ff1744";
+        rr(ctx, -flapW * 0.4, -2 * scale, flapW * 0.8, 3.5 * scale, 1.5 * scale);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  } else {
+    // GT / Muscle / Rally Active Aerofoil
+    const wingW = 220 * scale;
+    const wingH = 14 * scale;
+    const pitchLift = -airbrakeAmount * 14 * scale + drsAmount * 5 * scale;
+    const flapAngle = airbrakeAmount * 0.32 - drsAmount * 0.14;
+
+    ctx.save();
+    ctx.translate(0, pitchLift);
+    ctx.rotate(flapAngle);
+
+    ctx.fillStyle = "#12141b";
+    rr(ctx, -wingW / 2, -wingH / 2, wingW, wingH, 4 * scale);
+    ctx.fill();
+    ctx.fillStyle = baseColor;
+    rr(ctx, -wingW / 2, -wingH / 2, wingW, 3 * scale, 1.5 * scale);
+    ctx.fill();
+
+    if (airbrakeAmount > 0.2) {
+      ctx.shadowColor = "#ff1744";
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = "#ffffff";
+      rr(ctx, -wingW * 0.35, -2 * scale, wingW * 0.7, 3.5 * scale, 1.5 * scale);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+/** Renders multi-stage procedural exhaust backfires, flame jets and plasma torches */
+export function renderExhaustFlames(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  baseY: number,
+  dw: number,
+  dh: number,
+  bodyStyle: BodyStyle,
+  isBoosting: boolean,
+  backfireTimer: number,
+  redlineTimer: number,
+  driftBoost: boolean,
+  time: number,
+) {
+  const active = isBoosting || backfireTimer > 0 || redlineTimer > 0 || driftBoost;
+  if (!active) return;
+
+  const scale = dw / 340;
+  let tips: { x: number; y: number; size: number }[] = [];
+
+  if (bodyStyle === "proto") {
+    // Central quad rocket barrels
+    tips = [
+      { x: -7 * scale, y: -95 * (dh / 220), size: 1.0 },
+      { x: 7 * scale, y: -95 * (dh / 220), size: 1.0 },
+      { x: -7 * scale, y: -85 * (dh / 220), size: 1.0 },
+      { x: 7 * scale, y: -85 * (dh / 220), size: 1.0 },
+    ];
+  } else if (bodyStyle === "rally") {
+    // Giant angled single cannon right
+    tips = [{ x: 64 * scale, y: -24 * (dh / 220), size: 1.85 }];
+  } else if (bodyStyle === "cyber") {
+    // Dual vector energy ports
+    tips = [
+      { x: -68 * scale, y: -23 * (dh / 220), size: 1.35 },
+      { x: 68 * scale, y: -23 * (dh / 220), size: 1.35 },
+    ];
+  } else if (bodyStyle === "muscle") {
+    // Quad rectangular tips
+    tips = [
+      { x: -72 * scale, y: -23 * (dh / 220), size: 1.1 },
+      { x: -56 * scale, y: -23 * (dh / 220), size: 1.1 },
+      { x: 56 * scale, y: -23 * (dh / 220), size: 1.1 },
+      { x: 72 * scale, y: -23 * (dh / 220), size: 1.1 },
+    ];
+  } else {
+    // Solstice GT quad oval tips
+    tips = [
+      { x: -70 * scale, y: -23 * (dh / 220), size: 1.05 },
+      { x: -58 * scale, y: -23 * (dh / 220), size: 1.05 },
+      { x: 58 * scale, y: -23 * (dh / 220), size: 1.05 },
+      { x: 70 * scale, y: -23 * (dh / 220), size: 1.05 },
+    ];
+  }
+
+  ctx.save();
+
+  for (let i = 0; i < tips.length; i++) {
+    const tip = tips[i];
+    const fx = cx + tip.x;
+    const fy = baseY + tip.y;
+    const turb = Math.sin(time * 65 + i * 2.1);
+
+    // Calculate dynamic flame geometry
+    let flameLen = 0;
+    let flameW = 10 * scale * tip.size;
+
+    if (isBoosting) {
+      flameLen = (48 + turb * 12) * scale * tip.size;
+    } else if (driftBoost) {
+      flameLen = (62 + turb * 16) * scale * tip.size;
+    } else if (backfireTimer > 0) {
+      flameLen = (38 + Math.random() * 22) * scale * tip.size;
+      flameW *= 1.3;
+    } else if (redlineTimer > 0) {
+      flameLen = (28 + Math.random() * 14) * scale * tip.size;
+    }
+
+    if (flameLen <= 2) continue;
+
+    // Ground tarmac flame glow illumination
+    const groundGlow = ctx.createRadialGradient(fx, fy + flameLen * 0.5, 2, fx, fy + flameLen * 0.5, flameLen * 0.85);
+    groundGlow.addColorStop(0, isBoosting || bodyStyle === "cyber" ? "rgba(56, 189, 248, 0.45)" : "rgba(255, 140, 40, 0.45)");
+    groundGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = groundGlow;
+    ctx.beginPath();
+    ctx.ellipse(fx, fy + flameLen * 0.6, flameW * 2.2, flameLen * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Flame gradient
+    const flameGrad = ctx.createLinearGradient(fx, fy, fx, fy + flameLen);
+    if (isBoosting || bodyStyle === "cyber") {
+      // Supersonic Cyan/Azure Plasma Torch
+      flameGrad.addColorStop(0, "rgba(255, 255, 255, 0.98)");
+      flameGrad.addColorStop(0.2, "rgba(125, 245, 255, 0.95)");
+      flameGrad.addColorStop(0.55, "rgba(14, 165, 233, 0.85)");
+      flameGrad.addColorStop(0.85, "rgba(99, 102, 241, 0.5)");
+      flameGrad.addColorStop(1, "rgba(168, 85, 247, 0)");
+    } else {
+      // Violent Combustion Fireball
+      flameGrad.addColorStop(0, "rgba(255, 255, 255, 0.98)");
+      flameGrad.addColorStop(0.25, "rgba(255, 225, 110, 0.95)");
+      flameGrad.addColorStop(0.6, "rgba(255, 100, 20, 0.85)");
+      flameGrad.addColorStop(0.85, "rgba(220, 38, 38, 0.5)");
+      flameGrad.addColorStop(1, "rgba(120, 10, 10, 0)");
+    }
+
+    ctx.fillStyle = flameGrad;
+    ctx.beginPath();
+    ctx.moveTo(fx - flameW * 0.5, fy);
+    ctx.quadraticCurveTo(fx - flameW * 0.7, fy + flameLen * 0.4, fx, fy + flameLen);
+    ctx.quadraticCurveTo(fx + flameW * 0.7, fy + flameLen * 0.4, fx + flameW * 0.5, fy);
+    ctx.closePath();
+    ctx.fill();
+
+    // Shock diamond core
+    if (isBoosting || driftBoost) {
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.moveTo(fx, fy + 4 * scale);
+      ctx.lineTo(fx - flameW * 0.22, fy + flameLen * 0.35);
+      ctx.lineTo(fx, fy + flameLen * 0.6);
+      ctx.lineTo(fx + flameW * 0.22, fy + flameLen * 0.35);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+}
+
+// ------------------------------------------------------------------
 // SHOWROOM PREVIEW — HIGH FIDELITY TURNTABLE SHOWCASE
 // ------------------------------------------------------------------
 export function carPreview(
@@ -1766,7 +2329,6 @@ export function chevronSprite(direction: "left" | "right" = "left", weather: Wea
 
   const W = 180, H = 140;
   const { c, g } = make(W, H);
-  const cx = W / 2;
 
   // Dual legs
   g.fillStyle = "#1e222b";

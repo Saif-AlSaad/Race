@@ -11,6 +11,7 @@ import {
   OFFROAD_LIMIT, BOOST_TOP_MULT, BOOST_ACCEL_MULT, RIVALS, SCENES, CARS,
   type CarDef, type WeatherMode, type GameSettings, DEFAULT_SETTINGS,
   type DifficultyLevel, DIFFICULTIES, type CarUpgrades, DEFAULT_UPGRADES,
+  type ScenePalette,
 } from "./constants";
 import { buildTrack, type TrackData, type Segment, type SpritePlacement } from "./track";
 import {
@@ -18,6 +19,7 @@ import {
   shrubSprite, rockSprite, brakeMarkerSprite, chevronSprite,
   tireWallSprite, marshalPostSprite, gantrySprite,
   skyLayer, ridgeLayer, cloudSprite, type SpriteInfo, type Paint,
+  renderSteeredFrontWheels, renderAnimatedRearWheels, renderActiveWing, renderExhaustFlames,
 } from "./sprites";
 import type { AudioEngine } from "./audio";
 
@@ -50,9 +52,15 @@ export interface HudState {
   speedUnit: string;
   gear: number;
   rpm: number;
+  rpmRaw: number;
   boost: number; // 0..100
   boosting: boolean;
   drifting: boolean;
+  driftTier: number; // 0..3
+  driftCharge: number; // 0..1
+  airbrakeActive: boolean;
+  drsActive: boolean;
+  rotorHeat: number;
   offroad: boolean;
   lap: number;
   totalLaps: number;
@@ -160,10 +168,49 @@ export class RaceEngine {
   private lateralG: number = 0;
   private cleanRace: boolean = true;
 
-  // Dynamic Car Body Roll & Suspension Simulation
+  // Enhanced Lateral & Drift Physics Model
+  private playerVx: number = 0; // lateral velocity in road units/sec
+  private yawAngle: number = 0; // dynamic 3D perspective yaw (radians)
+  private steerAngle: number = 0; // front wheel steer angle (radians)
+  private driftAngle: number = 0; // chassis slip angle during drift
+  private driftTimer: number = 0; // clean drift duration (seconds)
+  private driftTier: number = 0; // 0, 1, 2, 3
+  private driftBoostTimer: number = 0; // mini-turbo speed boost timer
+  private driftDir: number = 0; // -1 left, 1 right
+  private wasBraking: boolean = false;
+
+  // 6-Speed Transmission & Powertrain Dynamics
+  private gear: number = 1;
+  private rpm: number = 0.15;
+  private engineRpmRaw: number = 1000;
+  private shiftPauseTimer: number = 0;
+  private redlineTimer: number = 0;
+  private wheelRotationAngle: number = 0;
+  private rotorHeat: number = 0;
+
+  // 2nd-Order Spring-Damper Suspension Physics
   private rollAngle: number = 0; // chassis roll angle in radians
   private pitchOffset: number = 0; // vertical squat/dive displacement (px)
   private suspensionTravel: number = 0; // road bump displacement
+  private pitchVel: number = 0;
+  private rollVel: number = 0;
+  private curbRumbleTimer: number = 0;
+
+  // Active Aerodynamics & Visual FX
+  private airbrakeAmount: number = 0;
+  private drsAmount: number = 0;
+  private exhaustBackfireTimer: number = 0;
+
+  // Volumetric Tire Smoke & Drift Spark Systems
+  private tireSmoke: {
+    x: number; y: number; vx: number; vy: number;
+    size: number; maxSize: number; life: number; maxLife: number;
+    alpha: number; color: string; rot: number; vRot: number;
+  }[] = [];
+  private driftSparks: {
+    x: number; y: number; vx: number; vy: number;
+    life: number; maxLife: number; size: number; color: string;
+  }[] = [];
 
   // Slipstream / Drafting Mechanic
   private draftingNow: boolean = false;
@@ -353,33 +400,34 @@ export class RaceEngine {
   }
 
   hud(): HudState {
-    const engineMult = 1 + (this.upgrades.engine || 0) * 0.035;
-    const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed * engineMult;
-    const gearTop = maxSpeed / 6;
-    const gear = clamp(1 + Math.floor(this.speed / gearTop), 1, 6);
-    const rpm = clamp((this.speed % gearTop) / gearTop, 0, 1);
     const speedMult = this.settings.speedUnit === "kmh" ? 1.60934 : 1.0;
     const speedVal = Math.round(this.speed * MPH_SCALE * speedMult);
 
     let shiftLights = 0;
-    if (rpm > 0.97) shiftLights = 7;
-    else if (rpm > 0.92) shiftLights = 6;
-    else if (rpm > 0.85) shiftLights = 5;
-    else if (rpm > 0.77) shiftLights = 4;
-    else if (rpm > 0.65) shiftLights = 3;
-    else if (rpm > 0.50) shiftLights = 2;
-    else if (rpm > 0.35) shiftLights = 1;
+    if (this.rpm > 0.96) shiftLights = 7;
+    else if (this.rpm > 0.90) shiftLights = 6;
+    else if (this.rpm > 0.83) shiftLights = 5;
+    else if (this.rpm > 0.75) shiftLights = 4;
+    else if (this.rpm > 0.63) shiftLights = 3;
+    else if (this.rpm > 0.48) shiftLights = 2;
+    else if (this.rpm > 0.32) shiftLights = 1;
 
     return {
       mode: this.mode,
       weather: this.weather,
       mph: speedVal,
       speedUnit: this.settings.speedUnit.toUpperCase(),
-      gear,
-      rpm,
+      gear: this.gear,
+      rpm: this.rpm,
+      rpmRaw: this.engineRpmRaw,
       boost: this.boostMeter,
       boosting: this.boostNow,
       drifting: this.driftNow,
+      driftTier: this.driftTier,
+      driftCharge: clamp(this.driftTimer / 2.8, 0, 1),
+      airbrakeActive: this.airbrakeAmount > 0.15,
+      drsActive: this.drsAmount > 0.15,
+      rotorHeat: Number(this.rotorHeat.toFixed(2)),
       offroad: this.offroadNow,
       lap: Math.min(this.lap, this.totalLaps),
       totalLaps: this.totalLaps,
@@ -454,6 +502,33 @@ export class RaceEngine {
     this.aeroStreamers = [];
     this.lastSkidSegIndex = -1;
     this.particles = [];
+
+    // Reset advanced physics & animation states
+    this.playerVx = 0;
+    this.yawAngle = 0;
+    this.steerAngle = 0;
+    this.driftAngle = 0;
+    this.driftTimer = 0;
+    this.driftTier = 0;
+    this.driftBoostTimer = 0;
+    this.driftDir = 0;
+    this.wasBraking = false;
+    this.gear = 1;
+    this.rpm = 0.15;
+    this.engineRpmRaw = 1000;
+    this.shiftPauseTimer = 0;
+    this.redlineTimer = 0;
+    this.wheelRotationAngle = 0;
+    this.rotorHeat = 0;
+    this.pitchVel = 0;
+    this.rollVel = 0;
+    this.curbRumbleTimer = 0;
+    this.airbrakeAmount = 0;
+    this.drsAmount = 0;
+    this.exhaustBackfireTimer = 0;
+    this.tireSmoke = [];
+    this.driftSparks = [];
+
     this.spawnGrid(false);
   }
 
@@ -517,7 +592,18 @@ export class RaceEngine {
 
     if (this.mode === "countdown") {
       const rev = this.input.up || this.touch.up;
-      this.audio.setEngine(rev ? 0.62 + Math.sin(this.time * 31) * 0.1 : 0.1, rev, true);
+      if (rev) {
+        this.rpm = lerp(this.rpm, 0.78 + Math.sin(this.time * 35) * 0.12, 1 - Math.exp(-dt * 14));
+        if (Math.random() < dt * 8) {
+          this.exhaustBackfireTimer = 0.09;
+        }
+      } else {
+        this.rpm = lerp(this.rpm, 0.12, 1 - Math.exp(-dt * 6));
+      }
+      this.audio.setEngine(this.rpm, rev, true);
+      this.updateParticles(dt);
+      this.updateTireSmoke(dt);
+      this.updateDriftSparks(dt);
       return;
     }
 
@@ -533,48 +619,241 @@ export class RaceEngine {
 
     const maxSpeed = BASE_MAX_SPEED * this.car.topSpeed * engineMult * (this.mode === "attract" ? 0.96 : 1);
     const speedPct = clamp(this.speed / maxSpeed, 0, 1);
+    const curMph = this.speed * MPH_SCALE;
     const playerSeg = this.findSegment(this.position + this.playerZ);
 
-    // ---- steering ----
-    const sens = this.settings.steeringSensitivity || 1.0;
-    const dx = dt * 2.3 * speedPct * (0.7 + this.car.grip * gripMult * 0.42) * sens;
-    let steer = 0;
-    if (c.left) { this.playerX -= dx; steer = -1; }
-    if (c.right) { this.playerX += dx; steer = 1; }
-    this.playerX -= dx * speedPct * playerSeg.curve * CENTRIFUGAL;
-    this.steerVis = lerp(this.steerVis, steer, 1 - Math.exp(-dt * 9));
+    // -------------------------------------------------------------
+    // 1. GEARBOX, 6-SPEED TRANSMISSION & ENGINE RPM
+    // -------------------------------------------------------------
+    const GEAR_MAX_MPH = [48, 86, 124, 162, 198, 238];
+    const GEAR_TORQUE = [1.46, 1.26, 1.10, 1.00, 0.90, 0.82];
 
-    // ---- lateral G calculation for realistic telemetry ----
+    let targetGear = 1;
+    for (let g = 0; g < GEAR_MAX_MPH.length; g++) {
+      const prevLimit = g > 0 ? GEAR_MAX_MPH[g - 1] : 0;
+      if (curMph > prevLimit * 0.82) {
+        targetGear = g + 1;
+      }
+    }
+    targetGear = clamp(targetGear, 1, 6);
+
+    // Gear shift transitions
+    if (targetGear > this.gear) {
+      this.gear = targetGear;
+      this.shiftPauseTimer = 0.085;
+      this.exhaustBackfireTimer = 0.16;
+      this.pitchVel -= 22; // weight transfer shift rebound
+      this.audio.gearShift();
+    } else if (targetGear < this.gear) {
+      this.gear = targetGear;
+      this.rpm = Math.min(1.0, this.rpm + 0.22);
+    }
+
+    // Engine RPM inside current gear
+    const curGearLow = this.gear === 1 ? 0 : GEAR_MAX_MPH[this.gear - 2] * 0.72;
+    const curGearHigh = GEAR_MAX_MPH[this.gear - 1];
+    const gearSpan = Math.max(1, curGearHigh - curGearLow);
+    const gearProgress = clamp((curMph - curGearLow) / gearSpan, 0, 1);
+    const targetRpm = clamp(0.36 + gearProgress * 0.64, 0.15, 1.0);
+    this.rpm = lerp(this.rpm, targetRpm, 1 - Math.exp(-dt * 14));
+    this.engineRpmRaw = Math.round(1500 + this.rpm * 7500);
+
+    // Redline Limiter Stutter on Redline
+    if (this.rpm > 0.97 && c.up && (this.gear === 6 || curMph >= curGearHigh * 0.98)) {
+      this.redlineTimer = 0.06;
+      if (Math.random() < dt * 20) {
+        this.audio.revLimiter();
+        this.shake = Math.max(this.shake, 0.08);
+      }
+    } else {
+      this.redlineTimer = Math.max(0, this.redlineTimer - dt);
+    }
+
+    // Wheel rotation angle continuous spin
+    this.wheelRotationAngle = (this.wheelRotationAngle + (this.speed * dt * 0.0035)) % (Math.PI * 2);
+
+    // -------------------------------------------------------------
+    // 2. BRAKE ROTOR THERMODYNAMICS & ACTIVE AERO
+    // -------------------------------------------------------------
+    const isBraking = c.down && this.speed > 350;
+    if (isBraking) {
+      this.rotorHeat = Math.min(1.0, this.rotorHeat + dt * 0.92 * speedPct);
+    } else {
+      this.rotorHeat = Math.max(0.0, this.rotorHeat - dt * 0.45 * (0.6 + speedPct * 0.8));
+    }
+
+    // Airbrake & DRS
+    const targetAirbrake = (isBraking && this.speed > 2400) ? 1.0 : 0.0;
+    this.airbrakeAmount = lerp(this.airbrakeAmount, targetAirbrake, 1 - Math.exp(-dt * 14));
+
+    const targetDrs = (this.boostNow || (this.speed > maxSpeed * 0.88 && !isBraking)) ? 1.0 : 0.0;
+    this.drsAmount = lerp(this.drsAmount, targetDrs, 1 - Math.exp(-dt * 8));
+
+    // -------------------------------------------------------------
+    // 3. STEERING, BRAKE-DRIFT & ADVANCED DRIFT MECHANICS
+    // -------------------------------------------------------------
+    const sens = this.settings.steeringSensitivity || 1.0;
+    let steerTarget = 0;
+    if (c.left) steerTarget -= 1;
+    if (c.right) steerTarget += 1;
+
+    // Steered front wheel angle with high-speed stability damping
+    const speedSteerSens = lerp(1.0, 0.62, speedPct);
+    const targetSteerAngle = steerTarget * 0.52 * speedSteerSens * sens;
+    this.steerAngle = lerp(this.steerAngle, targetSteerAngle, 1 - Math.exp(-dt * 16));
+    this.steerVis = lerp(this.steerVis, steerTarget, 1 - Math.exp(-dt * 9));
+
+    // Brake-drift trigger: tapping brake while steering aggressively into a turn
+    const justTappedBrake = c.down && !this.wasBraking;
+    this.wasBraking = c.down;
+    const brakeDriftTrigger = justTappedBrake && Math.abs(steerTarget) > 0.25 && speedPct > 0.38;
+
+    // Drift initiation & state machine
+    const wantsDrift = c.drift || brakeDriftTrigger;
+    if (wantsDrift && Math.abs(steerTarget) > 0 && speedPct > 0.35 && !this.driftNow) {
+      this.driftNow = true;
+      this.driftDir = steerTarget > 0 ? 1 : -1;
+      this.driftTimer = 0;
+      this.driftTier = 0;
+      this.exhaustBackfireTimer = 0.12;
+      this.audio.backfire();
+    } else if (this.driftNow) {
+      // Check if drift is maintained or canceled
+      const stillCornering = Math.abs(steerTarget) > 0 || Math.abs(playerSeg.curve) > 0.5;
+      if (!stillCornering || speedPct < 0.25 || (c.down && this.speed < 1200)) {
+        // Exit drift & release Mini-Turbo!
+        this.driftNow = false;
+        if (this.driftTier > 0) {
+          const boostDurations = [0, 0.8, 1.25, 1.8];
+          this.driftBoostTimer = boostDurations[this.driftTier] || 1.0;
+          this.audio.driftBoost();
+          this.exhaustBackfireTimer = 0.25;
+          this.boostMeter = Math.min(maxBoostCap, this.boostMeter + this.driftTier * 12);
+          this.shake = Math.max(this.shake, 0.18);
+          this.rollVel += this.driftDir * 28;
+        }
+        this.driftTimer = 0;
+        this.driftTier = 0;
+      }
+    }
+
+    // Counter-steering & slip angle simulation during drift
+    if (this.driftNow) {
+      const isCounterSteering = (this.driftDir === 1 && steerTarget < 0) || (this.driftDir === -1 && steerTarget > 0);
+      const isOverSteering = (this.driftDir === 1 && steerTarget > 0) || (this.driftDir === -1 && steerTarget < 0);
+
+      const targetSlip = this.driftDir * (isOverSteering ? 0.48 : isCounterSteering ? 0.28 : 0.38);
+      this.driftAngle = lerp(this.driftAngle, targetSlip, 1 - Math.exp(-dt * 8));
+
+      // Sweet spot for charging Mini-Turbo: proper counter-steering or controlled angle
+      if (isCounterSteering || Math.abs(this.driftAngle) > 0.22) {
+        this.driftTimer += dt;
+        if (this.driftTimer >= 2.8) this.driftTier = 3;
+        else if (this.driftTimer >= 1.6) this.driftTier = 2;
+        else if (this.driftTimer >= 0.75) this.driftTier = 1;
+      }
+
+      // Tire smoke & sparks from rear tires
+      const dw = this.playerDrawW();
+      const cx = this.width / 2 + this.steerVis * this.width * 0.012;
+      const rollShiftX = -this.rollAngle * dw * 0.28;
+      const leftTireX = cx + rollShiftX - dw * 0.365;
+      const rightTireX = cx + rollShiftX + dw * 0.365;
+      const tireY = this.height * 0.985;
+      if (Math.random() < dt * 65) {
+        this.spawnTireSmoke(leftTireX, rightTireX, tireY, 1.0);
+      }
+      if (this.driftTier > 0 && Math.random() < dt * 50) {
+        this.spawnDriftSparks(leftTireX, rightTireX, tireY, this.driftTier);
+      }
+    } else {
+      this.driftAngle = lerp(this.driftAngle, 0, 1 - Math.exp(-dt * 14));
+    }
+
+    // Burnout tire smoke on hard launch
+    if (c.up && this.speed < 1200 && this.mode === "racing") {
+      const dw = this.playerDrawW();
+      const cx = this.width / 2 + this.steerVis * this.width * 0.012;
+      const leftTireX = cx - dw * 0.365;
+      const rightTireX = cx + dw * 0.365;
+      const tireY = this.height * 0.985;
+      if (Math.random() < dt * 35) {
+        this.spawnTireSmoke(leftTireX, rightTireX, tireY, 0.65);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 4. LATERAL MOMENTUM & CENTRIFUGAL VELOCITY MODEL
+    // -------------------------------------------------------------
+    const corneringStiffness = (3.6 + this.car.grip * gripMult * 1.8) * speedSteerSens * sens;
+    const corneringForce = steerTarget * corneringStiffness * speedPct;
+    const centrifugalForce = -playerSeg.curve * speedPct * speedPct * CENTRIFUGAL * 16.5;
+
+    if (this.driftNow) {
+      const driftLatForce = corneringForce * 0.42 + centrifugalForce * 1.15;
+      this.playerVx = lerp(this.playerVx, driftLatForce, 1 - Math.exp(-dt * 4.5));
+    } else {
+      const netLatForce = corneringForce + centrifugalForce;
+      this.playerVx = lerp(this.playerVx, netLatForce, 1 - Math.exp(-dt * 9.5));
+      if (steerTarget === 0 && Math.abs(playerSeg.curve) < 0.2) {
+        this.playerVx *= Math.exp(-dt * 5.5);
+      }
+    }
+
+    this.playerX += this.playerVx * dt;
+
+    // 3D Perspective Yaw Angle
+    const targetYaw = this.driftNow ? -this.driftAngle * 0.92 : -this.steerVis * 0.16;
+    this.yawAngle = lerp(this.yawAngle, targetYaw, 1 - Math.exp(-dt * 14));
+
+    // Lateral G telemetry
     const curveG = Math.abs(playerSeg.curve) * speedPct * speedPct * 0.95;
     const steerG = Math.abs(this.steerVis) * speedPct * (1.1 + this.car.grip * gripMult * 0.35);
-    const targetG = clamp(Math.max(curveG, steerG) * 1.35, 0, 1.85);
+    const targetG = clamp(Math.max(curveG, steerG) * 1.35 + (this.driftNow ? 0.35 : 0), 0, 2.1);
     this.lateralG = lerp(this.lateralG, targetG, 1 - Math.exp(-dt * 6.5));
 
-    // ---- drift ----
-    this.driftNow = c.drift && Math.abs(steer) > 0 && speedPct > 0.42;
-
-    // ---- dynamic car body roll & suspension simulation ----
-    // Lateral roll: chassis leans outward against cornering centrifugal force,
-    // plus counter-steering lean during drifts
-    const steerRoll = this.steerVis * (0.055 + (this.driftNow ? 0.065 : 0));
+    // -------------------------------------------------------------
+    // 5. 2ND-ORDER HARMONIC SUSPENSION (ROLL & PITCH)
+    // -------------------------------------------------------------
+    const steerRoll = this.steerVis * (0.052 + (this.driftNow ? 0.058 : 0));
     const curveCentrifugalRoll = (playerSeg.curve * speedPct * speedPct) * 0.038;
-    const targetRoll = -(steerRoll + curveCentrifugalRoll);
-    this.rollAngle = lerp(this.rollAngle, targetRoll, 1 - Math.exp(-dt * 12));
+    const targetRoll = -(steerRoll + curveCentrifugalRoll + (this.driftNow ? this.driftAngle * 0.25 : 0));
+    const rollSpringK = 220;
+    const rollDamping = 20;
+    const rollForce = (targetRoll - this.rollAngle) * rollSpringK;
+    this.rollVel += (rollForce - this.rollVel * rollDamping) * dt;
+    this.rollAngle += this.rollVel * dt;
 
-    // Pitch: Dive on braking, Squat on acceleration/boost
     let targetPitch = 0;
-    if (this.boostNow) targetPitch = 5.2;
-    else if (c.up && this.speed < maxSpeed) targetPitch = 3.0;
-    else if (c.down && this.speed > 350) targetPitch = -5.4;
+    if (this.boostNow || this.driftBoostTimer > 0) targetPitch = 5.6;
+    else if (c.up && this.speed < maxSpeed) targetPitch = 3.2;
+    else if (isBraking) targetPitch = -5.8;
+    if (this.shiftPauseTimer > 0) targetPitch -= 2.2;
     const slope = (playerSeg.p2.world.y - playerSeg.p1.world.y) * 0.16;
     targetPitch += clamp(slope, -4, 4);
-    this.pitchOffset = lerp(this.pitchOffset, targetPitch, 1 - Math.exp(-dt * 10));
 
-    // Road bump suspension oscillation
+    const pitchSpringK = 190;
+    const pitchDamping = 18;
+    const pitchForce = (targetPitch - this.pitchOffset) * pitchSpringK;
+    this.pitchVel += (pitchForce - this.pitchVel * pitchDamping) * dt;
+    this.pitchOffset += this.pitchVel * dt;
+
     this.suspensionTravel = Math.sin(this.time * 38) * speedPct * speedPct * 2.2 +
       (this.offroadNow ? (Math.random() - 0.5) * 6 : 0);
 
-    // ---- persistent skidmarks stamping ----
+    // Curb Rumble 40Hz vibration
+    const absX = Math.abs(this.playerX);
+    const onCurb = absX > 0.98 && absX <= 1.15;
+    this.offroadNow = absX > 1.15;
+    if (onCurb && this.speed > 500) {
+      this.curbRumbleTimer += dt * 42;
+      this.suspensionTravel += Math.sin(this.curbRumbleTimer) * 3.5 * speedPct;
+      this.shake = Math.max(this.shake, 0.18);
+    }
+
+    // -------------------------------------------------------------
+    // 6. PERSISTENT SKIDMARKS
+    // -------------------------------------------------------------
     const isSkidding = this.driftNow || (c.down && this.speed > 800) || (this.offroadNow && this.speed > 1600);
     if (isSkidding && this.speed > 350) {
       const pSeg = this.findSegment(this.position + this.playerZ);
@@ -595,13 +874,14 @@ export class RaceEngine {
       this.lastSkidSegIndex = -1;
     }
 
-    // ---- slipstream / drafting detection ----
+    // -------------------------------------------------------------
+    // 7. SLIPSTREAM & AERODYNAMIC STREAMERS
+    // -------------------------------------------------------------
     let bestDraft: Opponent | null = null;
     let closestDraftDist = Infinity;
     if (this.mode === "racing" && this.speed > 1600) {
       for (const o of this.opponents) {
         let relZ = o.total - this.playerTotal;
-        // In front between 220 and 1600 world units (~1 to 9 segments ahead)
         if (relZ > 220 && relZ < 1600) {
           const latOffsetDiff = Math.abs(o.offset - this.playerX);
           if (latOffsetDiff < 0.42 && relZ < closestDraftDist) {
@@ -624,7 +904,6 @@ export class RaceEngine {
       this.draftFactor = Math.max(0, this.draftFactor - dt * 2.8);
     }
 
-    // Aerodynamic streamline streamers
     if (this.draftFactor > 0.15 && Math.random() < dt * 42) {
       this.aeroStreamers.push({
         x: (Math.random() - 0.5) * (this.width * 0.45),
@@ -644,23 +923,44 @@ export class RaceEngine {
       }
     }
 
-    // ---- throttle / brake with slipstream tow ----
+    // -------------------------------------------------------------
+    // 8. LONGITUDINAL ACCELERATION & POWERTRAIN
+    // -------------------------------------------------------------
     this.boostNow = c.boost && this.boostMeter > 1 && this.speed > 2400;
     const draftTopMult = 1 + this.draftFactor * 0.11;
     const draftAccelMult = 1 + this.draftFactor * 0.38;
-    const topNow = maxSpeed * (this.boostNow ? BOOST_TOP_MULT : 1) * draftTopMult;
-    if (c.up) this.speed += BASE_ACCEL * this.car.accel * transMult * (this.boostNow ? BOOST_ACCEL_MULT : 1) * draftAccelMult * dt;
-    else if (c.down) this.speed += BRAKE_FORCE * dt;
-    else this.speed += COAST_DECEL * dt;
-    if (this.driftNow) this.speed -= maxSpeed * 0.11 * dt;
+    const miniTurboTopMult = this.driftBoostTimer > 0 ? (1 + this.driftTier * 0.05) : 1.0;
+    const topNow = maxSpeed * (this.boostNow ? BOOST_TOP_MULT : 1) * draftTopMult * miniTurboTopMult;
 
-    // ---- offroad / curb / gravel ----
-    const absX = Math.abs(this.playerX);
-    const onCurb = absX > 0.98 && absX <= 1.15;
-    this.offroadNow = absX > 1.15;
-    if (onCurb && this.speed > 600) {
-      this.shake = Math.max(this.shake, 0.12);
+    const gearTorque = GEAR_TORQUE[this.gear - 1] || 1.0;
+    const shiftCut = this.shiftPauseTimer > 0 ? 0.25 : 1.0;
+    this.shiftPauseTimer = Math.max(0, this.shiftPauseTimer - dt);
+
+    const miniTurboAccelMult = this.driftBoostTimer > 0 ? 1.45 : 1.0;
+    this.driftBoostTimer = Math.max(0, this.driftBoostTimer - dt);
+
+    if (c.up) {
+      const baseA = BASE_ACCEL * this.car.accel * transMult * gearTorque;
+      const boostA = this.boostNow ? BOOST_ACCEL_MULT : 1;
+      this.speed += baseA * boostA * draftAccelMult * miniTurboAccelMult * shiftCut * dt;
+    } else if (c.down) {
+      this.speed += BRAKE_FORCE * (1 + (this.airbrakeAmount * 0.25)) * dt;
+    } else {
+      this.speed += COAST_DECEL * dt;
     }
+
+    // Aerodynamic Drag scales with speed^2
+    const aeroDrag = -this.speed * speedPct * 0.12 * (1 - this.drsAmount * 0.4) * (1 - this.draftFactor * 0.35) * dt;
+    this.speed += aeroDrag;
+
+    // Drift speed scrub (minimal if skilled drift)
+    if (this.driftNow) {
+      this.speed -= maxSpeed * (this.driftTier > 0 ? 0.05 : 0.09) * dt;
+    }
+
+    this.exhaustBackfireTimer = Math.max(0, this.exhaustBackfireTimer - dt);
+
+    // Offroad friction & dust
     if (this.offroadNow && this.speed > OFFROAD_LIMIT * (0.8 + this.car.grip * 0.25)) {
       this.speed += OFFROAD_DECEL * dt;
       this.dust(dt);
@@ -670,12 +970,12 @@ export class RaceEngine {
       this.waterSpray(dt);
     }
 
-    // ---- boost meter ----
+    // Boost meter recharge
     if (this.boostNow) this.boostMeter = Math.max(0, this.boostMeter - 30 * dt);
-    else this.boostMeter = Math.min(maxBoostCap, this.boostMeter + (this.driftNow ? 28 : this.draftFactor > 0.3 ? 22 : this.offroadNow ? 1.5 : 8) * dt);
-    this.fovBoost = lerp(this.fovBoost, this.boostNow ? 1 : 0, 1 - Math.exp(-dt * 4));
+    else this.boostMeter = Math.min(maxBoostCap, this.boostMeter + (this.driftNow ? 32 : this.draftFactor > 0.3 ? 24 : this.offroadNow ? 1.5 : 8) * dt);
+    this.fovBoost = lerp(this.fovBoost, this.boostNow || this.driftBoostTimer > 0 ? 1 : 0, 1 - Math.exp(-dt * 4));
 
-    // over-top-speed ease back
+    // Over-top-speed ease back
     if (this.speed > topNow) this.speed = lerp(this.speed, topNow, 1 - Math.exp(-dt * 2.2));
     this.speed = clamp(this.speed, 0, topNow * 1.06);
     this.playerX = clamp(this.playerX, -2.7, 2.7);
@@ -684,21 +984,21 @@ export class RaceEngine {
     this.playerTotal += this.speed * dt;
     this.collCooldown = Math.max(0, this.collCooldown - dt);
 
-    // ---- scenery parallax ----
+    // Parallax
     this.skyOff += playerSeg.curve * speedPct * dt * 22;
     this.farOff += playerSeg.curve * speedPct * dt * 60;
     this.nearOff += playerSeg.curve * speedPct * dt * 130;
 
-    // ---- collisions ----
+    // Collisions
     if (this.mode === "racing") {
       this.collideSprites(playerSeg);
       this.collideCars();
     }
 
-    // ---- opponents ----
+    // Opponents
     this.updateOpponents(dt);
 
-    // ---- race bookkeeping ----
+    // Race bookkeeping
     if (this.mode === "racing") {
       this.raceElapsed += dt;
       const newLap = Math.floor(this.playerTotal / this.track.length) + 1;
@@ -712,7 +1012,6 @@ export class RaceEngine {
         if (this.playerTotal >= this.totalLaps * this.track.length) this.finishRace();
         else this.onLap?.(newLap, lapMs, this.bestLap * 1000);
       }
-      // standings + overtake toasts
       this.posCheck += dt;
       if (this.posCheck > 0.35) {
         this.posCheck = 0;
@@ -726,17 +1025,18 @@ export class RaceEngine {
     }
 
     this.updateParticles(dt);
+    this.updateTireSmoke(dt);
+    this.updateDriftSparks(dt);
     this.updateRain(dt);
 
-    // ---- audio ----
-    const rpm = clamp(this.speed / maxSpeed, 0, 1);
+    // Audio
     const skidAmt =
       this.mode === "racing" || this.mode === "attract" || this.mode === "finished"
-        ? clamp((this.driftNow ? 0.9 : 0) + (this.offroadNow && this.speed > 2200 ? 0.8 : 0), 0, 1)
+        ? clamp((this.driftNow ? 0.95 : 0) + (this.offroadNow && this.speed > 2200 ? 0.8 : 0) + (this.rotorHeat > 0.5 ? 0.35 : 0), 0, 1)
         : 0;
-    this.audio.setEngine(rpm * (this.boostNow ? 1.12 : 1), c.up && this.speed < maxSpeed, true);
+    this.audio.setEngine(this.rpm * (this.boostNow ? 1.12 : 1), c.up && this.speed < maxSpeed, true);
     this.audio.setSkid(skidAmt * speedPct);
-    this.audio.setBoost(this.boostNow ? 1 : 0);
+    this.audio.setBoost(this.boostNow || this.driftBoostTimer > 0 ? 1 : 0);
     this.audio.setDraft(this.mode === "racing" ? this.draftFactor : 0);
   }
 
@@ -976,6 +1276,108 @@ export class RaceEngine {
       p.vy += (p.front ? 500 : -24) * dt; // sparks fall, dust rises
       p.size = Math.max(0.4, p.size + p.grow * dt);
     }
+  }
+
+  private spawnTireSmoke(leftX: number, rightX: number, y: number, intensity = 1.0) {
+    if (this.tireSmoke.length > 90) return;
+    for (const tx of [leftX, rightX]) {
+      this.tireSmoke.push({
+        x: tx + (Math.random() - 0.5) * 8,
+        y: y - 2,
+        vx: (Math.random() - 0.5) * 28 - this.playerVx * 12,
+        vy: -15 - Math.random() * 24,
+        size: 8 + Math.random() * 6,
+        maxSize: 34 + Math.random() * 24,
+        life: 0.52 + Math.random() * 0.32,
+        maxLife: 0.52 + Math.random() * 0.32,
+        alpha: 0.65 * intensity,
+        color: this.weather === "night" ? "rgba(180, 205, 235, 0.45)" : "rgba(240, 245, 255, 0.55)",
+        rot: Math.random() * Math.PI * 2,
+        vRot: (Math.random() - 0.5) * 3,
+      });
+    }
+  }
+
+  private spawnDriftSparks(leftX: number, rightX: number, y: number, tier: number) {
+    if (this.driftSparks.length > 70) return;
+    const colors = ["#38bdf8", "#38bdf8", "#fbbf24", "#c084fc"];
+    const sparkColor = colors[tier] || "#38bdf8";
+    for (const tx of [leftX, rightX]) {
+      this.driftSparks.push({
+        x: tx + (Math.random() - 0.5) * 12,
+        y: y - 4,
+        vx: (Math.random() - 0.5) * 90 - this.playerVx * 30,
+        vy: -30 - Math.random() * 55,
+        life: 0.28 + Math.random() * 0.2,
+        maxLife: 0.28 + Math.random() * 0.2,
+        size: 2.2 + Math.random() * 2.5,
+        color: sparkColor,
+      });
+    }
+  }
+
+  private updateTireSmoke(dt: number) {
+    for (let i = this.tireSmoke.length - 1; i >= 0; i--) {
+      const s = this.tireSmoke[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.tireSmoke.splice(i, 1);
+        continue;
+      }
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.rot += s.vRot * dt;
+      const progress = 1 - s.life / s.maxLife;
+      s.size = lerp(s.size, s.maxSize, progress);
+    }
+  }
+
+  private updateDriftSparks(dt: number) {
+    for (let i = this.driftSparks.length - 1; i >= 0; i--) {
+      const sp = this.driftSparks[i];
+      sp.life -= dt;
+      if (sp.life <= 0) {
+        this.driftSparks.splice(i, 1);
+        continue;
+      }
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+      sp.vy += 220 * dt; // gravity
+    }
+  }
+
+  private renderTireSmoke() {
+    const { ctx } = this;
+    for (const s of this.tireSmoke) {
+      const a = clamp(Math.sin((s.life / s.maxLife) * Math.PI) * s.alpha, 0, 1);
+      if (a <= 0.01) continue;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot);
+      const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, s.size);
+      grad.addColorStop(0, `rgba(235, 240, 250, ${a * 0.7})`);
+      grad.addColorStop(0.5, `rgba(195, 205, 220, ${a * 0.35})`);
+      grad.addColorStop(1, "rgba(160, 175, 195, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.size, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  private renderDriftSparks() {
+    const { ctx } = this;
+    for (const sp of this.driftSparks) {
+      const a = clamp(sp.life / sp.maxLife, 0, 1);
+      ctx.fillStyle = sp.color;
+      ctx.shadowColor = sp.color;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, sp.size * a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
   }
 
   private finishRace() {
@@ -1566,13 +1968,19 @@ export class RaceEngine {
     const dh = dw * (o.sprite.canvas.height / o.sprite.canvas.width);
     const clipY = seg.clip;
 
-    // dynamic body roll based on road curvature and steering wander
+    // dynamic body roll & 3D perspective yaw based on road curvature and steering wander
     const rivalRoll = -seg.curve * 0.038;
+    const rivalYaw = -seg.curve * 0.065;
+    const rivalShearX = Math.sin(rivalYaw) * 0.18;
+    const rivalScaleX = Math.cos(rivalYaw) * 0.98 + 0.02;
 
     this.ctx.save();
     this.ctx.translate(sx, sy);
     if (Math.abs(rivalRoll) > 0.002) {
       this.ctx.rotate(rivalRoll);
+    }
+    if (Math.abs(rivalShearX) > 0.001) {
+      this.ctx.transform(rivalScaleX, 0, rivalShearX, 1, 0, 0);
     }
 
     // dynamic contact shadow under rival tires
@@ -1582,15 +1990,18 @@ export class RaceEngine {
     this.ctx.ellipse(0, 0, dw * 0.44, dh * 0.12, 0, 0, Math.PI * 2);
     this.ctx.fill();
 
-    // in dark environments, draw red LED taillight halo behind rival
-    if (this.weather !== "sunset") {
-      const glow = this.ctx.createRadialGradient(0, -dh * 0.5, 2, 0, -dh * 0.5, dw * 0.55);
-      glow.addColorStop(0, "rgba(255, 25, 45, 0.75)");
-      glow.addColorStop(0.5, "rgba(255, 10, 30, 0.2)");
+    // in dark environments or heavy braking into sharp corners, draw red LED taillight halo behind rival
+    const rivalBraking = Math.abs(seg.curve) > 1.2 && o.speed > o.cruise * 0.85;
+    if (rivalBraking || this.weather !== "sunset") {
+      const glowAlpha = rivalBraking ? 0.95 : 0.65;
+      const glowR = rivalBraking ? dw * 0.65 : dw * 0.5;
+      const glow = this.ctx.createRadialGradient(0, -dh * 0.5, 2, 0, -dh * 0.5, glowR);
+      glow.addColorStop(0, `rgba(255, 30, 45, ${glowAlpha})`);
+      glow.addColorStop(0.5, `rgba(255, 10, 30, ${glowAlpha * 0.3})`);
       glow.addColorStop(1, "rgba(0,0,0,0)");
       this.ctx.fillStyle = glow;
       this.ctx.beginPath();
-      this.ctx.arc(0, -dh * 0.5, dw * 0.55, 0, Math.PI * 2);
+      this.ctx.arc(0, -dh * 0.5, glowR, 0, Math.PI * 2);
       this.ctx.fill();
     }
 
@@ -1780,6 +2191,12 @@ export class RaceEngine {
     const roll = this.rollAngle;
     const rollShiftX = -roll * dw * 0.28;
 
+    // 3D Perspective Yaw & Horizontal Shear
+    const yaw = this.yawAngle;
+    const shearX = Math.sin(yaw) * 0.24;
+    const cosYaw = Math.cos(yaw);
+    const scaleX = cosYaw * 0.96 + 0.04;
+
     // Contact shadow anchored to the road underneath the tires
     ctx.save();
     ctx.fillStyle = "rgba(0, 0, 0, 0.44)";
@@ -1788,27 +2205,24 @@ export class RaceEngine {
     ctx.fill();
     ctx.restore();
 
-    // nitro flames
-    if (this.boostNow) {
-      for (const sx of [-1, 1]) {
-        const fx = cx + rollShiftX + sx * dw * 0.187;
-        const fy = baseY - dh * 0.104;
-        const len = dw * (0.1 + Math.random() * 0.09);
-        const grd = ctx.createLinearGradient(fx, fy, fx, fy + len);
-        grd.addColorStop(0, "rgba(255,230,170,0.95)");
-        grd.addColorStop(0.4, "rgba(255,140,50,0.8)");
-        grd.addColorStop(1, "rgba(255,80,30,0)");
-        ctx.fillStyle = grd;
-        ctx.beginPath();
-        ctx.moveTo(fx - dw * 0.028, fy);
-        ctx.lineTo(fx + dw * 0.028, fy);
-        ctx.lineTo(fx, fy + len);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
+    // Render tire smoke and drift sparks
+    this.renderTireSmoke();
+    this.renderDriftSparks();
 
-    // record taillight history for light trails
+    // Steered Front Wheels (rendered beneath front splitter & arches)
+    renderSteeredFrontWheels(
+      ctx,
+      cx + rollShiftX,
+      baseY,
+      dw,
+      dh,
+      this.steerAngle,
+      this.car.wheelStyle,
+      this.car.caliperColor,
+      this.driftNow,
+    );
+
+    // Record taillight history for light trails
     const brakeY = baseY - dh * 0.52;
     this.taillightHistory.push({
       leftX: cx + rollShiftX - dw * 0.33,
@@ -1819,11 +2233,60 @@ export class RaceEngine {
     });
     while (this.taillightHistory.length > 16) this.taillightHistory.shift();
 
-    // Draw player car rotated around tire contact base
+    // Draw player car rotated around tire contact base with 3D perspective shear
     ctx.save();
     ctx.translate(cx + rollShiftX, baseY);
     ctx.rotate(roll);
+    ctx.transform(scaleX, 0, shearX, 1, 0, 0);
+
+    // Photorealistic body hull
     ctx.drawImage(sprite.canvas, -dw / 2, -dh, dw, dh);
+
+    // Dynamic Active Aerodynamic Rear Wing (Airbrake on braking, DRS on boost)
+    renderActiveWing(
+      ctx,
+      0,
+      0,
+      dw,
+      dh,
+      this.car.bodyStyle,
+      this.car.base,
+      this.car.accent,
+      this.airbrakeAmount,
+      this.drsAmount,
+      roll,
+    );
+
+    // Dynamic Rotating Rear Wheels with Motion Blur & Glowing Brake Rotors
+    renderAnimatedRearWheels(
+      ctx,
+      0,
+      0,
+      dw,
+      dh,
+      this.wheelRotationAngle,
+      this.car.wheelStyle,
+      this.car.caliperColor,
+      this.rotorHeat,
+      this.speed / (BASE_MAX_SPEED * this.car.topSpeed),
+      this.car.accent,
+    );
+
+    // Multi-Stage Exhaust Backfire Flames & Sparks
+    renderExhaustFlames(
+      ctx,
+      0,
+      0,
+      dw,
+      dh,
+      this.car.bodyStyle,
+      this.boostNow,
+      this.exhaustBackfireTimer,
+      this.redlineTimer,
+      this.driftBoostTimer > 0,
+      this.time,
+    );
+
     ctx.restore();
   }
 

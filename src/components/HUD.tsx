@@ -93,7 +93,7 @@ export default function HUD({
             "ml-2 text-[9px] font-mono font-bold tracking-wider",
             isRedline ? "text-purple-300 animate-blink" : "text-white/40"
           )}>
-            {isRedline ? "SHIFT" : `${Math.round(hud.rpm * 9000)} RPM`}
+            {isRedline ? "SHIFT" : `${hud.rpmRaw} RPM`}
           </span>
         </div>
 
@@ -246,8 +246,39 @@ export default function HUD({
                 </span>
               )}
               {hud.drifting && (
-                <span className="flex items-center gap-1 bg-gradient-to-r from-sky-400 to-cyan-300 px-2 py-0.5 text-[10px] font-black tracking-widest text-black shadow-[0_0_10px_rgba(56,189,248,0.7)]">
-                  <Flame className="h-3 w-3 fill-black" /> DRIFT
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 text-[10px] font-black tracking-widest text-black shadow-[0_0_12px_rgba(56,189,248,0.8)]",
+                    hud.driftTier === 3
+                      ? "bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-300 shadow-[0_0_16px_#c084fc] animate-pulse"
+                      : hud.driftTier === 2
+                      ? "bg-gradient-to-r from-amber-400 to-yellow-300 shadow-[0_0_12px_#fbbf24]"
+                      : hud.driftTier === 1
+                      ? "bg-gradient-to-r from-sky-400 to-cyan-300 shadow-[0_0_10px_#38bdf8]"
+                      : "bg-sky-400/80 text-black"
+                  )}>
+                    <Flame className="h-3 w-3 fill-black" />
+                    {hud.driftTier === 3 ? "MINI-TURBO MAX" : hud.driftTier === 2 ? "BOOST TIER 2" : hud.driftTier === 1 ? "BOOST TIER 1" : "DRIFTING"}
+                  </span>
+                  <div className="h-1 w-24 bg-white/10 overflow-hidden rounded-full">
+                    <div
+                      className={cn(
+                        "h-full transition-[width] duration-75",
+                        hud.driftTier === 3 ? "bg-gradient-to-r from-purple-400 to-pink-400" : hud.driftTier === 2 ? "bg-amber-400" : "bg-sky-400"
+                      )}
+                      style={{ width: `${Math.round(hud.driftCharge * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {hud.airbrakeActive && (
+                <span className="flex items-center gap-1 bg-gradient-to-r from-rose-600 to-red-500 px-2 py-0.5 text-[10px] font-black tracking-widest text-white shadow-[0_0_12px_rgba(244,63,94,0.7)] animate-pulse">
+                  AIRBRAKE
+                </span>
+              )}
+              {hud.drsActive && !hud.boosting && (
+                <span className="flex items-center gap-1 bg-gradient-to-r from-emerald-500 to-teal-400 px-2 py-0.5 text-[10px] font-black tracking-widest text-black shadow-[0_0_10px_rgba(52,211,153,0.7)]">
+                  DRS OPEN
                 </span>
               )}
               {hud.offroad && (

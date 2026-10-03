@@ -251,6 +251,84 @@ export class AudioEngine {
     this.beep(880, 0.18, 0.15);
   }
 
+  gearShift() {
+    if (!this.ctx || !this.sfx || !this.noiseBuf || this.muted) return;
+    const t = this.ctx.currentTime;
+    // Turbo blow-off valve hiss / wastegate flutter
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(3400, t);
+    bp.frequency.exponentialRampToValueAtTime(1400, t + 0.14);
+    bp.Q.value = 3.2;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.26, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    src.connect(bp); bp.connect(g); g.connect(this.sfx);
+    src.start(t);
+
+    // Mechanical gear engagement clunk
+    const o = this.ctx.createOscillator();
+    o.type = "triangle";
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.08);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.22, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(og); og.connect(this.sfx);
+    o.start(t); o.stop(t + 0.1);
+  }
+
+  backfire() {
+    if (!this.ctx || !this.sfx || !this.noiseBuf || this.muted) return;
+    const t = this.ctx.currentTime;
+    // Sharp explosive exhaust detonation pop
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = "bandpass";
+    hp.frequency.setValueAtTime(2200, t);
+    hp.frequency.exponentialRampToValueAtTime(600, t + 0.08);
+    hp.Q.value = 1.8;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.38, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    src.connect(hp); hp.connect(g); g.connect(this.sfx);
+    src.start(t);
+  }
+
+  driftBoost() {
+    if (!this.ctx || !this.sfx || this.muted) return;
+    const t0 = this.ctx.currentTime;
+    // Triumphant turbo surge spool
+    const o = this.ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(320, t0);
+    o.frequency.exponentialRampToValueAtTime(960, t0 + 0.22);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.24, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.26);
+    o.connect(g); g.connect(this.sfx);
+    o.start(t0); o.stop(t0 + 0.28);
+  }
+
+  revLimiter() {
+    if (!this.ctx || !this.sfx || !this.noiseBuf || this.muted) return;
+    const t = this.ctx.currentTime;
+    // Rapid rat-tat-tat ignition cut pop
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 1600;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    src.connect(hp); hp.connect(g); g.connect(this.sfx);
+    src.start(t);
+  }
+
   revCar(carId: string) {
     if (!this.ctx || !this.sfx || this.muted) return;
     const t0 = this.ctx.currentTime;

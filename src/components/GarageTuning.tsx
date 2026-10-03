@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   Wrench, Zap, Gauge, Wind, Flame, Check, Lock, DollarSign,
-  ArrowLeft, Sparkles, Volume2, Palette, Sun, Moon, CloudRain, Disc
+  ArrowLeft, Sparkles, Palette, Sun, Moon, CloudRain, Disc
 } from "lucide-react";
 import {
   CARS, type CarDef, UPGRADE_DEFINITIONS,
