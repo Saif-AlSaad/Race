@@ -6,8 +6,21 @@
 
 import { SEGMENT_LENGTH, RUMBLE_LENGTH } from "./constants";
 
+export type SceneryKind =
+  | "palm"
+  | "pine"
+  | "bill"
+  | "lamp"
+  | "shrub"
+  | "rock"
+  | "brake"
+  | "chevron"
+  | "tirewall"
+  | "gantry"
+  | "marshal";
+
 export interface SpritePlacement {
-  kind: "palm" | "pine" | "bill" | "lamp";
+  kind: SceneryKind;
   variant: number;
   offset: number; // road-width units, negative = left
 }
@@ -43,6 +56,14 @@ export interface Segment {
   sprites: SpritePlacement[];
   alt: boolean; // colour band parity
   isStart: boolean;
+  // Realistic roadside environment parameters:
+  barrierLeft: boolean;
+  barrierRight: boolean;
+  tireWallLeft: boolean;
+  tireWallRight: boolean;
+  coastalSide: number; // -1 = left ocean, 1 = right ocean, 0 = inland
+  gravelRunoff: number; // 0 = standard verge, -1 = left gravel trap, 1 = right gravel trap, 2 = both
+  curbMult: number; // rumble curb width multiplier
   // per-frame render scratch
   fog: number;
   clip: number;
@@ -84,6 +105,13 @@ export function buildTrack(): TrackData {
       sprites: [],
       alt: Math.floor(n / RUMBLE_LENGTH) % 2 === 0,
       isStart: false,
+      barrierLeft: false,
+      barrierRight: false,
+      tireWallLeft: false,
+      tireWallRight: false,
+      coastalSide: 0,
+      gravelRunoff: 0,
+      curbMult: 1.0,
       fog: 1,
       clip: 0,
       looped: false,
@@ -104,21 +132,21 @@ export function buildTrack(): TrackData {
   const C = { NONE: 0, EASY: 2, MED: 4, HARD: 6 };
 
   // ---- Coastline Circuit layout ----
-  addRoad(L.MED, L.MED, L.MED, C.NONE, 0); // start straight
-  addRoad(40, 40, 40, 3, 18); // gentle right climbing
-  addRoad(25, 25, 25, -C.EASY, -6); // S-curves
-  addRoad(25, 25, 25, C.EASY + 1, 8);
-  addRoad(25, 25, 25, -C.EASY - 1, 0);
-  addRoad(25, 25, 25, C.EASY, -10);
-  addRoad(30, 60, 30, 0, 42); // big crest
-  addRoad(30, 30, 30, -C.HARD, -34); // plunging left
-  addRoad(20, 20, 20, C.EASY, 12); // rolling
-  addRoad(20, 20, 20, -C.EASY, 10);
-  addRoad(20, 20, 20, C.EASY + 1, -26);
-  addRoad(30, 30, 30, 0, -18); // dip
-  addRoad(40, 60, 40, C.MED, 22); // long right uphill
-  addRoad(40, 40, 40, -C.HARD, 12); // hairpin left
-  addRoad(20, 80, 20, 1, -20); // run home
+  addRoad(L.MED, L.MED, L.MED, C.NONE, 0); // start straight (0 to 150)
+  addRoad(40, 40, 40, 3, 18); // gentle right climbing (150 to 270)
+  addRoad(25, 25, 25, -C.EASY, -6); // S-curves (270 to 345)
+  addRoad(25, 25, 25, C.EASY + 1, 8); // (345 to 420)
+  addRoad(25, 25, 25, -C.EASY - 1, 0); // (420 to 495)
+  addRoad(25, 25, 25, C.EASY, -10); // (495 to 570)
+  addRoad(30, 60, 30, 0, 42); // big crest / bridge (570 to 690)
+  addRoad(30, 30, 30, -C.HARD, -34); // plunging left (690 to 780)
+  addRoad(20, 20, 20, C.EASY, 12); // rolling (780 to 840)
+  addRoad(20, 20, 20, -C.EASY, 10); // (840 to 900)
+  addRoad(20, 20, 20, C.EASY + 1, -26); // (900 to 960)
+  addRoad(30, 30, 30, 0, -18); // dip (960 to 1050)
+  addRoad(40, 60, 40, C.MED, 22); // long right uphill (1050 to 1190)
+  addRoad(40, 40, 40, -C.HARD, 12); // hairpin left (1190 to 1310)
+  addRoad(20, 80, 20, 1, -20); // run home (1310 to 1430)
 
   // settle — return elevation to start height for a seamless wrap
   const settleLen = 80;
@@ -132,38 +160,152 @@ export function buildTrack(): TrackData {
   // start line paint
   segments[6].isStart = true;
 
-  // ---- roadside dressing (deterministic) ----
+  // ---- CIRCUIT ENVIRONMENTAL ZONING & BARRIER ASSIGNMENTS ----
+  for (let i = 0; i < N; i++) {
+    const seg = segments[i];
+    const curveAbs = Math.abs(seg.curve);
+
+    // 1. Coastline ocean placement (left side ocean on scenic seaside sections)
+    if ((i >= 150 && i <= 690) || (i >= 1310 && i <= 1510)) {
+      seg.coastalSide = -1; // Left side opens to the ocean
+    }
+
+    // 2. High Bridge / Ridge crossing (570 to 690): Dual Armco guardrails
+    if (i >= 570 && i <= 690) {
+      seg.barrierLeft = true;
+      seg.barrierRight = true;
+    }
+
+    // 3. Coastal ocean cliff protection: left Armco guardrail
+    if (seg.coastalSide === -1 && i >= 150 && i <= 570) {
+      seg.barrierLeft = true;
+    }
+
+    // 4. Dynamic curve barrier & gravel trap setup based on physics
+    if (curveAbs >= 1.5) {
+      seg.curbMult = 1.3 + curveAbs * 0.12;
+      // Centrifugal force pushes car outward:
+      if (seg.curve > 0) {
+        // Right turn: outside is LEFT
+        seg.gravelRunoff = -1;
+        seg.barrierLeft = true;
+      } else {
+        // Left turn: outside is RIGHT
+        seg.gravelRunoff = 1;
+        seg.barrierRight = true;
+      }
+    }
+
+    // 5. Critical High-G Turn Safety: Tire Walls
+    // Plunging Left (seg 710 to 765): outside right has tire safety wall
+    if (i >= 710 && i <= 765) {
+      seg.tireWallRight = true;
+      seg.gravelRunoff = 1;
+      seg.curbMult = 1.6;
+    }
+    // Hard Hairpin Left (seg 1210 to 1280): outside right has full tire barrier
+    if (i >= 1210 && i <= 1280) {
+      seg.tireWallRight = true;
+      seg.gravelRunoff = 1;
+      seg.curbMult = 1.8;
+    }
+  }
+
+  // ---- ROADSIDE MOTORSPORT DRESSING & SPRITES ----
+  // Start / finish gantry over line
+  segments[6].sprites.push({ kind: "gantry", variant: 0, offset: 0 });
+
+  // Marshals' observation posts
+  segments[14].sprites.push({ kind: "marshal", variant: 0, offset: -1.4 });
+  segments[695].sprites.push({ kind: "marshal", variant: 0, offset: -1.45 });
+  segments[1200].sprites.push({ kind: "marshal", variant: 0, offset: -1.45 });
+
+  // FIA Turn Distance Brake Boards
+  // Plunging Left entry approach
+  segments[665].sprites.push({ kind: "brake", variant: 150, offset: 1.32 });
+  segments[675].sprites.push({ kind: "brake", variant: 100, offset: 1.32 });
+  segments[685].sprites.push({ kind: "brake", variant: 50, offset: 1.32 });
+
+  // Hairpin entry approach
+  segments[1165].sprites.push({ kind: "brake", variant: 150, offset: 1.32 });
+  segments[1178].sprites.push({ kind: "brake", variant: 100, offset: 1.32 });
+  segments[1190].sprites.push({ kind: "brake", variant: 50, offset: 1.32 });
+
+  // Apex Chevron Directional Indicators
+  // Plunging Left apex
+  for (let ci = 720; ci <= 750; ci += 8) {
+    segments[ci].sprites.push({ kind: "chevron", variant: 0, offset: 1.4 });
+  }
+  // Hairpin Left apex
+  for (let ci = 1225; ci <= 1265; ci += 8) {
+    segments[ci].sprites.push({ kind: "chevron", variant: 0, offset: 1.45 });
+  }
+
+  // Deterministic roadside natural environment population
   const rng = { s: 1234567 };
   let sinceLamp = 0;
   let sinceBill = 40;
+
   for (let i = 24; i < N; i++) {
     const seg = segments[i];
     sinceLamp++;
     sinceBill++;
-    const r = rand(rng);
-    if (r < 0.42) {
+
+    // 1. Roadside Flowering Shrubs (populate verges with low natural flora)
+    if (i % 3 === 0 && rand(rng) < 0.65) {
       const side = rand(rng) < 0.5 ? -1 : 1;
-      const kind = rand(rng) < 0.72 ? "palm" : "pine";
-      seg.sprites.push({ kind, variant: 0, offset: side * (1.55 + rand(rng) * 1.6) });
-      if (rand(rng) < 0.3) {
-        seg.sprites.push({ kind: rand(rng) < 0.6 ? "palm" : "pine", variant: 0, offset: -side * (1.7 + rand(rng) * 1.5) });
+      const shOffset = side * (1.35 + rand(rng) * 0.45);
+      seg.sprites.push({ kind: "shrub", variant: Math.floor(rand(rng) * 3), offset: shOffset });
+    }
+
+    // 2. Granite Boulders / Rock outcroppings near cutting banks & turns
+    if (i % 7 === 0 && rand(rng) < 0.45) {
+      const side = seg.curve > 0 ? 1 : seg.curve < 0 ? -1 : rand(rng) < 0.5 ? -1 : 1;
+      const rockOffset = side * (1.65 + rand(rng) * 0.9);
+      seg.sprites.push({ kind: "rock", variant: Math.floor(rand(rng) * 3), offset: rockOffset });
+    }
+
+    // 3. Palm & Pine Trees (multi-variant lush foliage)
+    const r = rand(rng);
+    if (r < 0.46) {
+      const side = rand(rng) < 0.5 ? -1 : 1;
+      const isPalm = seg.coastalSide === -1 ? rand(rng) < 0.82 : rand(rng) < 0.45;
+      const kind: SceneryKind = isPalm ? "palm" : "pine";
+      const variant = rand(rng) < 0.5 ? 0 : 1;
+      const treeOffset = side * (1.8 + rand(rng) * 1.5);
+      seg.sprites.push({ kind, variant, offset: treeOffset });
+
+      if (rand(rng) < 0.35) {
+        const otherSide = -side;
+        const otherKind: SceneryKind = rand(rng) < 0.6 ? "palm" : "pine";
+        const otherVar = rand(rng) < 0.5 ? 0 : 1;
+        seg.sprites.push({ kind: otherKind, variant: otherVar, offset: otherSide * (1.9 + rand(rng) * 1.4) });
       }
     }
-    if (sinceLamp >= 16) {
+
+    // 4. Highway / Trackside Lighting Masts
+    if (sinceLamp >= 14) {
       sinceLamp = 0;
-      const side = seg.curve > 0.5 ? -1 : seg.curve < -0.5 ? 1 : i % 32 === 0 ? 1 : -1;
-      seg.sprites.push({ kind: "lamp", variant: 0, offset: side * 1.32 });
+      const side = seg.curve > 0.5 ? -1 : seg.curve < -0.5 ? 1 : i % 28 === 0 ? 1 : -1;
+      seg.sprites.push({ kind: "lamp", variant: 0, offset: side * 1.34 });
     }
-    if (sinceBill > 110 && Math.abs(seg.curve) < 2 && rand(rng) < 0.5) {
+
+    // 5. Grand Prix Sponsor Billboards
+    if (sinceBill > 95 && Math.abs(seg.curve) < 2 && rand(rng) < 0.55) {
       sinceBill = 0;
       const side = rand(rng) < 0.5 ? -1 : 1;
-      seg.sprites.push({ kind: "bill", variant: Math.floor(rand(rng) * 3), offset: side * 2.0 });
+      seg.sprites.push({ kind: "bill", variant: Math.floor(rand(rng) * 3), offset: side * 2.1 });
     }
   }
 
-  // guard the start/finish approach clear of obstacles
-  for (let i = 0; i < 40; i++) segments[i].sprites = segments[i].sprites.filter((s) => Math.abs(s.offset) > 1.4 || s.kind === "lamp");
-  // festival lamps flanking the start
+  // Guard the start/finish straight approach clear of road obstacles
+  for (let i = 0; i < 40; i++) {
+    segments[i].sprites = segments[i].sprites.filter(
+      (s) => Math.abs(s.offset) > 1.38 || s.kind === "lamp" || s.kind === "gantry" || s.kind === "marshal"
+    );
+  }
+
+  // Festival lighting flanking the start line
   segments[3].sprites.push({ kind: "lamp", variant: 0, offset: -1.35 });
   segments[3].sprites.push({ kind: "lamp", variant: 0, offset: 1.35 });
   segments[9].sprites.push({ kind: "lamp", variant: 0, offset: -1.35 });

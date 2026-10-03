@@ -252,6 +252,21 @@ export interface ScenePalette {
   grassDark: string;
   rumbleLight: string;
   rumbleDark: string;
+  curbLip: string;
+  curbShadow: string;
+  shoulderLight: string;
+  shoulderDark: string;
+  gravelLight: string;
+  gravelDark: string;
+  vergeLight: string;
+  vergeDark: string;
+  waterLight: string;
+  waterDark: string;
+  waterFoam: string;
+  barrierPlate: string;
+  barrierPost: string;
+  barrierReflectLeft: string;
+  barrierReflectRight: string;
   lane: string;
   edge: string;
   ambientLight: number;
@@ -261,14 +276,29 @@ export interface ScenePalette {
 export const SCENES: Record<WeatherMode, ScenePalette> = {
   sunset: {
     fog: "#e2a06b",
-    roadLight: "#6e6a67",
-    roadDark: "#666260",
-    grassLight: "#8b9057",
-    grassDark: "#7f8750",
-    rumbleLight: "#ece5d6",
-    rumbleDark: "#bd3d2c",
-    lane: "rgba(240, 234, 216, 0.75)",
-    edge: "rgba(255, 240, 210, 0.16)",
+    roadLight: "#686461",
+    roadDark: "#5f5b58",
+    grassLight: "#7d854e",
+    grassDark: "#6e7544",
+    rumbleLight: "#f4ede1",
+    rumbleDark: "#c0392b",
+    curbLip: "#ffffff",
+    curbShadow: "rgba(35, 20, 15, 0.45)",
+    shoulderLight: "#4e4b48",
+    shoulderDark: "#45423f",
+    gravelLight: "#c8a577",
+    gravelDark: "#b49266",
+    vergeLight: "#676046",
+    vergeDark: "#57513b",
+    waterLight: "#2c5d79",
+    waterDark: "#1f445a",
+    waterFoam: "rgba(255, 245, 230, 0.75)",
+    barrierPlate: "#bcc0cc",
+    barrierPost: "#4a4f5c",
+    barrierReflectLeft: "#ffffff",
+    barrierReflectRight: "#ef4444",
+    lane: "rgba(240, 234, 216, 0.8)",
+    edge: "rgba(255, 240, 210, 0.22)",
     ambientLight: 1.0,
     wetness: 0,
   },
@@ -280,6 +310,21 @@ export const SCENES: Record<WeatherMode, ScenePalette> = {
     grassDark: "#080b12",
     rumbleLight: "#00e5ff", // electric cyan neon
     rumbleDark: "#ff007f", // electric magenta neon
+    curbLip: "#a5f3fc",
+    curbShadow: "rgba(0, 0, 0, 0.7)",
+    shoulderLight: "#14151e",
+    shoulderDark: "#0e0f16",
+    gravelLight: "#191c26",
+    gravelDark: "#12141c",
+    vergeLight: "#0e131c",
+    vergeDark: "#090d14",
+    waterLight: "#081324",
+    waterDark: "#040914",
+    waterFoam: "rgba(0, 229, 255, 0.45)",
+    barrierPlate: "#262938",
+    barrierPost: "#141620",
+    barrierReflectLeft: "#00e5ff",
+    barrierReflectRight: "#ff007f",
     lane: "rgba(255, 230, 110, 0.95)", // glowing phosphor highway lane
     edge: "rgba(0, 229, 255, 0.6)", // neon cyan edge glow
     ambientLight: 0.22,
@@ -293,6 +338,21 @@ export const SCENES: Record<WeatherMode, ScenePalette> = {
     grassDark: "#090f16",
     rumbleLight: "#dbeafe",
     rumbleDark: "#2563eb",
+    curbLip: "#ffffff",
+    curbShadow: "rgba(0, 5, 15, 0.65)",
+    shoulderLight: "#0e131d",
+    shoulderDark: "#090d14",
+    gravelLight: "#18222f",
+    gravelDark: "#121a24",
+    vergeLight: "#101822",
+    vergeDark: "#0b1017",
+    waterLight: "#0d1b2a",
+    waterDark: "#07101a",
+    waterFoam: "rgba(186, 230, 253, 0.6)",
+    barrierPlate: "#3b4252",
+    barrierPost: "#1f232b",
+    barrierReflectLeft: "#38bdf8",
+    barrierReflectRight: "#ef4444",
     lane: "rgba(240, 248, 255, 0.9)",
     edge: "rgba(56, 189, 248, 0.55)",
     ambientLight: 0.28,

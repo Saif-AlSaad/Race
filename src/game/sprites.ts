@@ -1100,118 +1100,973 @@ export function carPreview(
 }
 
 // ------------------------------------------------------------------
-// PALM TREE
+// REALISTIC COASTAL PALM TREE (2 Variants)
 // ------------------------------------------------------------------
-let palmCache: SpriteInfo | null = null;
-export function palmSprite(): SpriteInfo {
-  if (palmCache) return palmCache;
-  const W = 260, H = 300;
+const palmCaches = new Map<number, SpriteInfo>();
+export function palmSprite(variant: number = 0): SpriteInfo {
+  const v = variant % 2;
+  const hit = palmCaches.get(v);
+  if (hit) return hit;
+
+  const W = 280, H = 340;
   const { c, g } = make(W, H);
-  const topX = 148, topY = 74;
 
-  // trunk
-  g.strokeStyle = "#4a3421";
-  g.lineCap = "round";
-  g.lineWidth = 17;
-  g.beginPath();
-  g.moveTo(112, H - 6);
-  g.quadraticCurveTo(112, 180, topX, topY);
-  g.stroke();
-  g.strokeStyle = "#6b4c2c";
-  g.lineWidth = 9;
-  g.beginPath();
-  g.moveTo(112, H - 6);
-  g.quadraticCurveTo(113, 180, topX, topY);
-  g.stroke();
-  // trunk rings
-  g.strokeStyle = "rgba(30,20,12,0.55)";
-  g.lineWidth = 3;
-  for (let i = 0; i < 7; i++) {
-    const t = i / 7;
-    const x = 112 + (topX - 112) * t * t;
-    const y = H - 10 - (H - 10 - topY) * t;
+  if (v === 0) {
+    // ---- Variant 0: Tall Californian Coastal Fan Palm ----
+    const topX = 155, topY = 70;
+    const baseX = 120, baseY = H - 8;
+
+    // soft ground shadow
+    g.fillStyle = "rgba(10, 8, 14, 0.35)";
     g.beginPath();
-    g.moveTo(x - 9, y);
-    g.lineTo(x + 9, y - 3);
+    g.ellipse(baseX, baseY + 4, 34, 10, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // Trunk core gradient
+    const trunkGrad = g.createLinearGradient(baseX - 18, baseY, topX + 10, topY);
+    trunkGrad.addColorStop(0, "#2c1c11");
+    trunkGrad.addColorStop(0.3, "#4d341f");
+    trunkGrad.addColorStop(0.7, "#65452b");
+    trunkGrad.addColorStop(1, "#422c19");
+
+    // Main curved trunk
+    g.beginPath();
+    g.moveTo(baseX - 14, baseY);
+    g.quadraticCurveTo(116, 200, topX - 7, topY + 6);
+    g.lineTo(topX + 7, topY + 6);
+    g.quadraticCurveTo(134, 200, baseX + 14, baseY);
+    g.closePath();
+    g.fillStyle = trunkGrad;
+    g.fill();
+
+    // Bark texture & fiber rings
+    for (let i = 0; i < 28; i++) {
+      const t = i / 28;
+      const tx = baseX + (topX - baseX) * (t * 0.9 + t * t * 0.1);
+      const ty = baseY - (baseY - topY) * t;
+      const w = 13 - t * 6.5;
+
+      g.strokeStyle = i % 2 === 0 ? "rgba(25, 14, 8, 0.75)" : "rgba(145, 105, 72, 0.4)";
+      g.lineWidth = 2.2;
+      g.beginPath();
+      g.moveTo(tx - w, ty);
+      g.quadraticCurveTo(tx, ty - 2.5, tx + w, ty);
+      g.stroke();
+    }
+
+    // Trunk sunlit highlight ridge (left side golden rim)
+    g.strokeStyle = "rgba(255, 210, 140, 0.35)";
+    g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(baseX - 9, baseY);
+    g.quadraticCurveTo(119, 200, topX - 4, topY + 10);
     g.stroke();
+
+    // Coconut clusters at crown
+    const coconuts = [
+      { x: topX - 10, y: topY + 12, r: 7.5 },
+      { x: topX - 3, y: topY + 16, r: 8.5 },
+      { x: topX + 8, y: topY + 14, r: 8 },
+      { x: topX + 3, y: topY + 22, r: 6.5 },
+    ];
+    for (const cn of coconuts) {
+      const cg = g.createRadialGradient(cn.x - 2, cn.y - 2, 1, cn.x, cn.y, cn.r);
+      cg.addColorStop(0, "#73512e");
+      cg.addColorStop(0.7, "#422c15");
+      cg.addColorStop(1, "#211508");
+      g.fillStyle = cg;
+      g.beginPath();
+      g.arc(cn.x, cn.y, cn.r, 0, Math.PI * 2);
+      g.fill();
+    }
+
+    // Volumetric fan palm fronds (14 distinct natural fronds)
+    const fronds = [
+      { a: -168, len: 98, droop: 32, curve: -15 },
+      { a: -145, len: 112, droop: 40, curve: -18 },
+      { a: -125, len: 122, droop: 36, curve: -10 },
+      { a: -105, len: 126, droop: 28, curve: -5 },
+      { a: -85, len: 130, droop: 22, curve: 4 },
+      { a: -65, len: 125, droop: 26, curve: 10 },
+      { a: -45, len: 118, droop: 38, curve: 18 },
+      { a: -22, len: 105, droop: 46, curve: 22 },
+      { a: -5, len: 92, droop: 52, curve: 26 },
+      // Under-fronds (older, richer dark tones)
+      { a: -178, len: 84, droop: 48, curve: -22 },
+      { a: -135, len: 96, droop: 52, curve: -14 },
+      { a: -95, len: 104, droop: 42, curve: 0 },
+      { a: -55, len: 98, droop: 50, curve: 16 },
+      { a: 12, len: 80, droop: 56, curve: 25 },
+    ];
+
+    for (const f of fronds) {
+      const rad = (f.a * Math.PI) / 180;
+      const ex = topX + Math.cos(rad) * f.len;
+      const ey = topY + Math.sin(rad) * f.len * 0.72 + f.droop;
+      const mx = topX + Math.cos(rad) * f.len * 0.52 + f.curve * 0.6;
+      const my = topY + Math.sin(rad) * f.len * 0.4 - 14;
+
+      // Frond stem
+      const stemGrad = g.createLinearGradient(topX, topY, ex, ey);
+      stemGrad.addColorStop(0, "#4a6e30");
+      stemGrad.addColorStop(0.65, "#304d1e");
+      stemGrad.addColorStop(1, "#1e3312");
+      g.strokeStyle = stemGrad;
+      g.lineWidth = 4.5;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(topX, topY);
+      g.quadraticCurveTo(mx, my, ex, ey);
+      g.stroke();
+
+      // Leaf pinnules / blades along stem
+      const blades = 14;
+      for (let b = 2; b < blades; b++) {
+        const bt = b / blades;
+        const bx = topX * (1 - bt) * (1 - bt) + 2 * (1 - bt) * bt * mx + bt * bt * ex;
+        const by = topY * (1 - bt) * (1 - bt) + 2 * (1 - bt) * bt * my + bt * bt * ey;
+        const bladeLen = (Math.sin(bt * Math.PI) * 26 + 6) * (f.len / 115);
+
+        // Angle perpendicular to frond tangent
+        const tangX = 2 * (1 - bt) * (mx - topX) + 2 * bt * (ex - mx);
+        const tangY = 2 * (1 - bt) * (my - topY) + 2 * bt * (ey - my);
+        const bladeAng = Math.atan2(tangY, tangX) + Math.PI / 2;
+
+        g.strokeStyle = bt < 0.4 ? "#3d6126" : bt < 0.75 ? "#2d4a1b" : "#1a3010";
+        g.lineWidth = 2.8;
+        // left leaflet
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + Math.cos(bladeAng) * bladeLen, by + Math.sin(bladeAng) * bladeLen + 6);
+        g.stroke();
+        // right leaflet
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx - Math.cos(bladeAng) * bladeLen, by - Math.sin(bladeAng) * bladeLen + 6);
+        g.stroke();
+      }
+
+      // Sunlit rim highlight on top curve of frond
+      g.strokeStyle = "rgba(255, 235, 140, 0.45)";
+      g.lineWidth = 1.6;
+      g.beginPath();
+      g.moveTo(topX, topY - 2);
+      g.quadraticCurveTo(mx, my - 2, ex, ey - 2);
+      g.stroke();
+    }
+  } else {
+    // ---- Variant 1: Sweeping Arching Date Palm ----
+    const topX = 188, topY = 96;
+    const baseX = 85, baseY = H - 8;
+
+    // Ground shadow
+    g.fillStyle = "rgba(10, 8, 14, 0.35)";
+    g.beginPath();
+    g.ellipse(baseX, baseY + 4, 38, 11, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // Arching trunk
+    const trunkGrad = g.createLinearGradient(baseX, baseY, topX, topY);
+    trunkGrad.addColorStop(0, "#331f13");
+    trunkGrad.addColorStop(0.5, "#583a21");
+    trunkGrad.addColorStop(1, "#3d2716");
+
+    g.beginPath();
+    g.moveTo(baseX - 16, baseY);
+    g.quadraticCurveTo(110, 210, topX - 8, topY + 8);
+    g.lineTo(topX + 8, topY + 8);
+    g.quadraticCurveTo(138, 210, baseX + 16, baseY);
+    g.closePath();
+    g.fillStyle = trunkGrad;
+    g.fill();
+
+    // Diagonal diamond bark pattern
+    for (let i = 0; i < 24; i++) {
+      const t = i / 24;
+      const tx = baseX + (topX - baseX) * (t * 0.75 + t * t * 0.25);
+      const ty = baseY - (baseY - topY) * t;
+      const w = 14 - t * 7;
+      g.strokeStyle = "rgba(20, 10, 5, 0.65)";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(tx - w, ty + 2);
+      g.lineTo(tx + w, ty - 3);
+      g.stroke();
+    }
+
+    // Heavy cascading fronds
+    const fronds = [
+      { a: -180, len: 110, droop: 45, curve: -20 },
+      { a: -155, len: 125, droop: 48, curve: -16 },
+      { a: -130, len: 135, droop: 40, curve: -8 },
+      { a: -105, len: 140, droop: 32, curve: 0 },
+      { a: -80, len: 145, droop: 35, curve: 12 },
+      { a: -50, len: 138, droop: 45, curve: 20 },
+      { a: -20, len: 120, droop: 55, curve: 26 },
+      { a: 5, len: 98, droop: 62, curve: 28 },
+      // lower drooping canopy
+      { a: -168, len: 92, droop: 60, curve: -18 },
+      { a: -120, len: 110, droop: 58, curve: -5 },
+      { a: -70, len: 118, droop: 52, curve: 14 },
+      { a: -10, len: 95, droop: 68, curve: 24 },
+    ];
+
+    for (const f of fronds) {
+      const rad = (f.a * Math.PI) / 180;
+      const ex = topX + Math.cos(rad) * f.len;
+      const ey = topY + Math.sin(rad) * f.len * 0.7 + f.droop;
+      const mx = topX + Math.cos(rad) * f.len * 0.5 + f.curve * 0.7;
+      const my = topY + Math.sin(rad) * f.len * 0.35 - 12;
+
+      g.strokeStyle = "#385822";
+      g.lineWidth = 5;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(topX, topY);
+      g.quadraticCurveTo(mx, my, ex, ey);
+      g.stroke();
+
+      // Leaf blades
+      const blades = 13;
+      for (let b = 1; b < blades; b++) {
+        const bt = b / blades;
+        const bx = topX * (1 - bt) * (1 - bt) + 2 * (1 - bt) * bt * mx + bt * bt * ex;
+        const by = topY * (1 - bt) * (1 - bt) + 2 * (1 - bt) * bt * my + bt * bt * ey;
+        const blen = Math.sin(bt * Math.PI) * 28 + 6;
+        g.strokeStyle = bt < 0.5 ? "#466b2b" : "#243c16";
+        g.lineWidth = 3.2;
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx - 12, by + blen);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + 12, by + blen);
+        g.stroke();
+      }
+
+      g.strokeStyle = "rgba(255, 220, 120, 0.4)";
+      g.lineWidth = 1.8;
+      g.beginPath();
+      g.moveTo(topX, topY - 2);
+      g.quadraticCurveTo(mx, my - 2, ex, ey - 2);
+      g.stroke();
+    }
   }
 
-  // fronds
-  const fronds = 8;
-  for (let i = 0; i < fronds; i++) {
-    const a = (-178 + (i / (fronds - 1)) * 176) * (Math.PI / 180);
-    const len = 78 + Math.sin(i * 2.3) * 16;
-    const ex = topX + Math.cos(a) * len;
-    const ey = topY + Math.sin(a) * len * 0.62 + 26;
-    const mx = topX + Math.cos(a) * len * 0.55;
-    const my = topY + Math.sin(a) * len * 0.3 - 12;
-    const grad = g.createLinearGradient(topX, topY, ex, ey);
-    grad.addColorStop(0, "#3c5c2a");
-    grad.addColorStop(0.7, "#2a441f");
-    grad.addColorStop(1, "#1c3016");
-    g.strokeStyle = grad;
-    g.lineWidth = 11;
-    g.lineCap = "round";
-    g.beginPath();
-    g.moveTo(topX, topY);
-    g.quadraticCurveTo(mx, my, ex, ey);
-    g.stroke();
-    // backlit edge
-    g.strokeStyle = "rgba(255,196,110,0.5)";
-    g.lineWidth = 2.4;
-    g.beginPath();
-    g.moveTo(topX, topY - 4);
-    g.quadraticCurveTo(mx, my - 5, ex, ey - 4);
-    g.stroke();
-  }
-  // coconuts
-  g.fillStyle = "#5c4126";
-  g.beginPath(); g.arc(topX - 7, topY + 8, 6, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.arc(topX + 6, topY + 10, 5, 0, Math.PI * 2); g.fill();
-
-  palmCache = { canvas: c, worldW: 1.85, collide: 0.14 };
-  return palmCache;
+  const info: SpriteInfo = { canvas: c, worldW: 1.9, collide: 0.12 };
+  palmCaches.set(v, info);
+  return info;
 }
 
 // ------------------------------------------------------------------
-// PINE
+// REALISTIC COASTAL PINE & CYPRESS (2 Variants)
 // ------------------------------------------------------------------
-let pineCache: SpriteInfo | null = null;
-export function pineSprite(): SpriteInfo {
-  if (pineCache) return pineCache;
-  const W = 220, H = 300;
+const pineCaches = new Map<number, SpriteInfo>();
+export function pineSprite(variant: number = 0): SpriteInfo {
+  const v = variant % 2;
+  const hit = pineCaches.get(v);
+  if (hit) return hit;
+
+  const W = 240, H = 340;
   const { c, g } = make(W, H);
   const cx = W / 2;
-  g.fillStyle = "#4a3421";
-  rr(g, cx - 8, H - 46, 16, 44, 4);
+
+  // Ground shadow
+  g.fillStyle = "rgba(10, 8, 14, 0.35)";
+  g.beginPath();
+  g.ellipse(cx, H - 6, 42, 12, 0, 0, Math.PI * 2);
   g.fill();
-  const layers = 4;
-  for (let i = 0; i < layers; i++) {
-    const t = i / layers;
-    const y0 = 26 + t * 190;
-    const w = 46 + t * 78;
-    const h = 74;
-    const gr = g.createLinearGradient(cx - w, y0, cx + w, y0 + h);
-    gr.addColorStop(0, "#1d3320");
-    gr.addColorStop(0.75, "#2f4c28");
-    gr.addColorStop(1, "#43682f");
-    g.fillStyle = gr;
+
+  if (v === 0) {
+    // ---- Variant 0: Mediterranean Columnar Cypress ----
+    // Trunk base
+    g.fillStyle = "#382517";
+    rr(g, cx - 7, H - 36, 14, 32, 3);
+    g.fill();
+
+    // 7 overlapping organic flame lobes
+    const lobes = [
+      { y: 24, w: 26, h: 62 },
+      { y: 64, w: 38, h: 74 },
+      { y: 110, w: 48, h: 84 },
+      { y: 160, w: 56, h: 90 },
+      { y: 210, w: 60, h: 94 },
+      { y: 254, w: 52, h: 72 },
+      { y: 284, w: 38, h: 42 },
+    ];
+
+    for (let i = 0; i < lobes.length; i++) {
+      const lb = lobes[i];
+      const grad = g.createRadialGradient(cx - lb.w * 0.25, lb.y + lb.h * 0.35, 4, cx, lb.y + lb.h * 0.5, lb.w);
+      grad.addColorStop(0, "#3e6435");
+      grad.addColorStop(0.5, "#254221");
+      grad.addColorStop(1, "#142512");
+      g.fillStyle = grad;
+
+      g.beginPath();
+      g.moveTo(cx, lb.y);
+      g.quadraticCurveTo(cx + lb.w, lb.y + lb.h * 0.45, cx + lb.w * 0.65, lb.y + lb.h);
+      g.quadraticCurveTo(cx, lb.y + lb.h - 8, cx - lb.w * 0.65, lb.y + lb.h);
+      g.quadraticCurveTo(cx - lb.w, lb.y + lb.h * 0.45, cx, lb.y);
+      g.closePath();
+      g.fill();
+
+      // Needle texture bumps on perimeter
+      g.fillStyle = "rgba(65, 105, 55, 0.45)";
+      for (let k = 0; k < 8; k++) {
+        const offY = lb.y + lb.h * (0.2 + k * 0.09);
+        const offX = cx + (k % 2 === 0 ? 1 : -1) * (lb.w * 0.78);
+        g.beginPath();
+        g.arc(offX, offY, 6, 0, Math.PI * 2);
+        g.fill();
+      }
+
+      // Warm sunlight rim highlight along left/right edge
+      g.strokeStyle = "rgba(255, 214, 130, 0.45)";
+      g.lineWidth = 2.4;
+      g.beginPath();
+      g.moveTo(cx, lb.y + 4);
+      g.quadraticCurveTo(cx + lb.w - 3, lb.y + lb.h * 0.45, cx + lb.w * 0.55, lb.y + lb.h - 4);
+      g.stroke();
+    }
+  } else {
+    // ---- Variant 1: Rugged Coastal Pine ----
+    // Trunk with bark texture
+    const trunkGrad = g.createLinearGradient(cx - 10, H, cx + 10, 60);
+    trunkGrad.addColorStop(0, "#2c1c11");
+    trunkGrad.addColorStop(0.5, "#4e3522");
+    trunkGrad.addColorStop(1, "#362215");
+    g.fillStyle = trunkGrad;
+
     g.beginPath();
-    g.moveTo(cx, y0);
-    g.lineTo(cx - w, y0 + h);
-    g.quadraticCurveTo(cx, y0 + h - 14, cx + w, y0 + h);
+    g.moveTo(cx - 12, H - 6);
+    g.quadraticCurveTo(cx - 5, 190, cx - 4, 60);
+    g.lineTo(cx + 4, 60);
+    g.quadraticCurveTo(cx + 6, 190, cx + 12, H - 6);
     g.closePath();
     g.fill();
-    // sunset rim on right edge
-    g.strokeStyle = "rgba(255,186,100,0.55)";
-    g.lineWidth = 2.2;
+
+    // 6 horizontal tiered boughs
+    const tiers = [
+      { y: 40, w: 42, h: 52, yOff: 0 },
+      { y: 85, w: 72, h: 62, yOff: 5 },
+      { y: 135, w: 94, h: 68, yOff: -6 },
+      { y: 185, w: 108, h: 72, yOff: 8 },
+      { y: 235, w: 114, h: 76, yOff: -4 },
+      { y: 280, w: 86, h: 58, yOff: 6 },
+    ];
+
+    for (const tr of tiers) {
+      // Wood branch arms
+      g.strokeStyle = "#382315";
+      g.lineWidth = 5;
+      g.beginPath();
+      g.moveTo(cx, tr.y + tr.h * 0.4);
+      g.lineTo(cx - tr.w * 0.75, tr.y + tr.h * 0.7);
+      g.moveTo(cx, tr.y + tr.h * 0.4);
+      g.lineTo(cx + tr.w * 0.75, tr.y + tr.h * 0.7);
+      g.stroke();
+
+      // Tier foliage cluster
+      const grad = g.createLinearGradient(cx - tr.w, tr.y, cx + tr.w, tr.y + tr.h);
+      grad.addColorStop(0, "#193019");
+      grad.addColorStop(0.4, "#2e522b");
+      grad.addColorStop(0.85, "#426b38");
+      grad.addColorStop(1, "#21381c");
+      g.fillStyle = grad;
+
+      g.beginPath();
+      g.moveTo(cx, tr.y);
+      g.lineTo(cx + tr.w, tr.y + tr.h);
+      g.quadraticCurveTo(cx, tr.y + tr.h - 18, cx - tr.w, tr.y + tr.h);
+      g.closePath();
+      g.fill();
+
+      // Needle tuft fringes
+      g.fillStyle = "rgba(75, 120, 65, 0.4)";
+      for (let n = -tr.w + 14; n < tr.w - 10; n += 18) {
+        g.beginPath();
+        g.arc(cx + n, tr.y + tr.h - 6, 8, 0, Math.PI * 2);
+        g.fill();
+      }
+
+      // Edge rim
+      g.strokeStyle = "rgba(255, 205, 120, 0.5)";
+      g.lineWidth = 2.2;
+      g.beginPath();
+      g.moveTo(cx, tr.y + 2);
+      g.lineTo(cx + tr.w - 4, tr.y + tr.h - 3);
+      g.stroke();
+    }
+  }
+
+  const info: SpriteInfo = { canvas: c, worldW: 1.6, collide: 0.16 };
+  pineCaches.set(v, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// COASTAL SHRUBS & FLOWERING OLEANDER BUSHES
+// ------------------------------------------------------------------
+const shrubCaches = new Map<string, SpriteInfo>();
+export function shrubSprite(variant: number = 0, weather: WeatherMode = "sunset"): SpriteInfo {
+  const key = `${variant % 3}:${weather}`;
+  const hit = shrubCaches.get(key);
+  if (hit) return hit;
+
+  const W = 180, H = 110;
+  const { c, g } = make(W, H);
+  const cx = W / 2, cy = H - 18;
+
+  // Ground shadow
+  g.fillStyle = "rgba(10, 8, 14, 0.3)";
+  g.beginPath();
+  g.ellipse(cx, H - 8, 70, 14, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // Root branches
+  g.strokeStyle = "#382717";
+  g.lineWidth = 4;
+  g.beginPath();
+  g.moveTo(cx - 20, H - 10); g.lineTo(cx - 35, cy - 25);
+  g.moveTo(cx, H - 10); g.lineTo(cx, cy - 35);
+  g.moveTo(cx + 20, H - 10); g.lineTo(cx + 35, cy - 25);
+  g.stroke();
+
+  // Overlapping organic leaf bubbles
+  const clusters = [
+    { x: cx - 44, y: cy - 14, r: 28 },
+    { x: cx + 44, y: cy - 14, r: 28 },
+    { x: cx - 24, y: cy - 36, r: 32 },
+    { x: cx + 24, y: cy - 36, r: 32 },
+    { x: cx, y: cy - 48, r: 30 },
+    { x: cx - 56, y: cy - 8, r: 20 },
+    { x: cx + 56, y: cy - 8, r: 20 },
+  ];
+
+  for (const cl of clusters) {
+    const cg = g.createRadialGradient(cl.x - cl.r * 0.3, cl.y - cl.r * 0.3, 3, cl.x, cl.y, cl.r);
+    if (weather === "night") {
+      cg.addColorStop(0, "#1e3a2c");
+      cg.addColorStop(0.7, "#0f2118");
+      cg.addColorStop(1, "#07110c");
+    } else if (weather === "rain") {
+      cg.addColorStop(0, "#224233");
+      cg.addColorStop(0.7, "#14291f");
+      cg.addColorStop(1, "#0a1610");
+    } else {
+      cg.addColorStop(0, "#618a42");
+      cg.addColorStop(0.65, "#3d5e27");
+      cg.addColorStop(1, "#233b15");
+    }
+    g.fillStyle = cg;
     g.beginPath();
-    g.moveTo(cx, y0 + 2);
-    g.lineTo(cx + w - 4, y0 + h - 2);
+    g.arc(cl.x, cl.y, cl.r, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // Flowering blossoms (coastal oleander / bougainvillea)
+  const flowers = [
+    { x: cx - 38, y: cy - 28 }, { x: cx - 18, y: cy - 46 }, { x: cx + 14, y: cy - 48 },
+    { x: cx + 38, y: cy - 32 }, { x: cx - 48, y: cy - 12 }, { x: cx + 48, y: cy - 14 },
+    { x: cx, y: cy - 34 }, { x: cx - 12, y: cy - 20 }, { x: cx + 20, y: cy - 22 },
+  ];
+
+  for (const fl of flowers) {
+    g.fillStyle =
+      weather === "night"
+        ? "#00e5ff"
+        : weather === "rain"
+          ? "#e0f2fe"
+          : (variant % 2 === 0 ? "#f43f5e" : "#fbbf24");
+    g.beginPath();
+    g.arc(fl.x, fl.y, 3.8, 0, Math.PI * 2);
+    g.fill();
+    // Flower center
+    g.fillStyle = "#ffffff";
+    g.beginPath();
+    g.arc(fl.x, fl.y, 1.4, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  const info: SpriteInfo = { canvas: c, worldW: 0.85, collide: 0 };
+  shrubCaches.set(key, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// GRANITE BOULDERS & COASTAL CLIFF ROCKS
+// ------------------------------------------------------------------
+const rockCaches = new Map<string, SpriteInfo>();
+export function rockSprite(variant: number = 0, weather: WeatherMode = "sunset"): SpriteInfo {
+  const key = `${variant % 3}:${weather}`;
+  const hit = rockCaches.get(key);
+  if (hit) return hit;
+
+  const W = 220, H = 140;
+  const { c, g } = make(W, H);
+  const cx = W / 2, cy = H - 20;
+
+  // Ground shadow
+  g.fillStyle = "rgba(10, 8, 14, 0.4)";
+  g.beginPath();
+  g.ellipse(cx, H - 12, 85, 18, 0, 0, Math.PI * 2);
+  g.fill();
+
+  const isNight = weather === "night";
+  const isRain = weather === "rain";
+
+  // Base stone palette
+  const litColor = isNight ? "#2a3142" : isRain ? "#384152" : "#a89f91";
+  const midColor = isNight ? "#1a202c" : isRain ? "#252e3d" : "#7d7568";
+  const darkColor = isNight ? "#0f131a" : isRain ? "#151b24" : "#4a443b";
+  const rimColor = isNight ? "#00e5ff" : isRain ? "#7dd3fc" : "#ffdca8";
+
+  // Multi-faceted angular boulder polygons
+  // Face 1: Lit Top Face
+  g.fillStyle = litColor;
+  g.beginPath();
+  g.moveTo(cx - 30, cy - 80);
+  g.lineTo(cx + 40, cy - 70);
+  g.lineTo(cx + 70, cy - 25);
+  g.lineTo(cx + 10, cy - 35);
+  g.lineTo(cx - 50, cy - 30);
+  g.closePath();
+  g.fill();
+
+  // Face 2: Left Midtone Slanted Face
+  g.fillStyle = midColor;
+  g.beginPath();
+  g.moveTo(cx - 30, cy - 80);
+  g.lineTo(cx - 50, cy - 30);
+  g.lineTo(cx - 85, cy);
+  g.lineTo(cx - 65, cy - 40);
+  g.closePath();
+  g.fill();
+
+  // Face 3: Right Shadowed Facet
+  g.fillStyle = darkColor;
+  g.beginPath();
+  g.moveTo(cx + 40, cy - 70);
+  g.lineTo(cx + 85, cy - 10);
+  g.lineTo(cx + 70, cy - 25);
+  g.closePath();
+  g.fill();
+
+  // Face 4: Main Front Facet
+  const frontGrad = g.createLinearGradient(cx, cy - 40, cx, cy);
+  frontGrad.addColorStop(0, midColor);
+  frontGrad.addColorStop(1, darkColor);
+  g.fillStyle = frontGrad;
+  g.beginPath();
+  g.moveTo(cx - 50, cy - 30);
+  g.lineTo(cx + 10, cy - 35);
+  g.lineTo(cx + 70, cy - 25);
+  g.lineTo(cx + 80, cy);
+  g.lineTo(cx - 85, cy);
+  g.closePath();
+  g.fill();
+
+  // Weathered cracks and fissures
+  g.strokeStyle = "rgba(15, 12, 10, 0.75)";
+  g.lineWidth = 2.2;
+  g.beginPath();
+  g.moveTo(cx + 10, cy - 35); g.lineTo(cx + 15, cy - 12); g.lineTo(cx + 28, cy);
+  g.moveTo(cx - 30, cy - 80); g.lineTo(cx - 15, cy - 50); g.lineTo(cx - 24, cy - 30);
+  g.stroke();
+
+  // Lichen/moss patches on top ledge
+  g.fillStyle = isNight ? "rgba(0, 229, 255, 0.25)" : "rgba(125, 150, 75, 0.45)";
+  g.beginPath();
+  g.arc(cx - 10, cy - 65, 14, 0, Math.PI * 2);
+  g.arc(cx + 25, cy - 58, 12, 0, Math.PI * 2);
+  g.fill();
+
+  // Rim highlight on sharp stone crest
+  g.strokeStyle = rimColor;
+  g.lineWidth = 2.6;
+  g.beginPath();
+  g.moveTo(cx - 65, cy - 40);
+  g.lineTo(cx - 30, cy - 80);
+  g.lineTo(cx + 40, cy - 70);
+  g.lineTo(cx + 70, cy - 25);
+  g.stroke();
+
+  const info: SpriteInfo = { canvas: c, worldW: 1.1, collide: 0.28 };
+  rockCaches.set(key, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// FIA MOTORSPORT BRAKE DISTANCE BOARDS (150m, 100m, 50m)
+// ------------------------------------------------------------------
+const brakeCaches = new Map<number, SpriteInfo>();
+export function brakeMarkerSprite(meters: number = 100): SpriteInfo {
+  const m = meters === 50 ? 50 : meters === 150 ? 150 : 100;
+  const hit = brakeCaches.get(m);
+  if (hit) return hit;
+
+  const W = 140, H = 160;
+  const { c, g } = make(W, H);
+  const cx = W / 2;
+
+  // Dual steel mounting legs
+  g.fillStyle = "#1e222b";
+  rr(g, cx - 28, 90, 8, 65, 2); g.fill();
+  rr(g, cx + 20, 90, 8, 65, 2); g.fill();
+  g.fillStyle = "#3a404f";
+  rr(g, cx - 27, 90, 3, 65, 1); g.fill();
+  rr(g, cx + 21, 90, 3, 65, 1); g.fill();
+
+  // Main high-visibility board
+  g.fillStyle = "#0d1017";
+  rr(g, 10, 8, W - 20, 90, 6);
+  g.fill();
+
+  // Reflective white face
+  g.fillStyle = "#f8fafc";
+  rr(g, 14, 12, W - 28, 82, 4);
+  g.fill();
+
+  // Red racing indicator band at top
+  g.fillStyle = "#dc2626";
+  rr(g, 14, 12, W - 28, 12, 3);
+  g.fill();
+
+  // Bold high-contrast distance numeral
+  g.fillStyle = "#0f172a";
+  g.font = "italic 900 44px 'Chakra Petch', Arial";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(String(m), cx, 58);
+
+  // Red distance hashes at bottom (3 hashes for 150, 2 for 100, 1 for 50)
+  const hashCount = m === 150 ? 3 : m === 100 ? 2 : 1;
+  const hWidth = 14;
+  const startX = cx - (hashCount * hWidth + (hashCount - 1) * 6) / 2;
+  g.fillStyle = "#dc2626";
+  for (let h = 0; h < hashCount; h++) {
+    g.fillRect(startX + h * (hWidth + 6), 84, hWidth, 5);
+  }
+
+  const info: SpriteInfo = { canvas: c, worldW: 0.6, collide: 0.08 };
+  brakeCaches.set(m, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// CORNER APEX CHEVRON DIRECTIONAL BOARDS
+// ------------------------------------------------------------------
+const chevronCaches = new Map<string, SpriteInfo>();
+export function chevronSprite(direction: "left" | "right" = "left", weather: WeatherMode = "sunset"): SpriteInfo {
+  const key = `${direction}:${weather}`;
+  const hit = chevronCaches.get(key);
+  if (hit) return hit;
+
+  const W = 180, H = 140;
+  const { c, g } = make(W, H);
+  const cx = W / 2;
+
+  // Dual legs
+  g.fillStyle = "#1e222b";
+  rr(g, 36, 75, 8, 60, 2); g.fill();
+  rr(g, W - 44, 75, 8, 60, 2); g.fill();
+
+  // Outer frame
+  g.fillStyle = "#0b0e14";
+  rr(g, 10, 10, W - 20, 72, 6);
+  g.fill();
+
+  // High-contrast background
+  const isNight = weather !== "sunset";
+  g.fillStyle = isNight ? "#111422" : "#f8fafc";
+  rr(g, 14, 14, W - 28, 64, 4);
+  g.fill();
+
+  // Draw 3 bold directional chevrons (<<< or >>>)
+  const numChevrons = 3;
+  const chW = 34, chH = 46;
+  const arrowColor = isNight ? "#00e5ff" : "#dc2626";
+
+  g.fillStyle = arrowColor;
+  for (let i = 0; i < numChevrons; i++) {
+    const x = 32 + i * 44;
+    const y = 23;
+    g.beginPath();
+    if (direction === "left") {
+      g.moveTo(x + chW, y);
+      g.lineTo(x, y + chH / 2);
+      g.lineTo(x + chW, y + chH);
+      g.lineTo(x + chW - 14, y + chH);
+      g.lineTo(x - 14, y + chH / 2);
+      g.lineTo(x + chW - 14, y);
+    } else {
+      g.moveTo(x, y);
+      g.lineTo(x + chW, y + chH / 2);
+      g.lineTo(x, y + chH);
+      g.lineTo(x + 14, y + chH);
+      g.lineTo(x + chW + 14, y + chH / 2);
+      g.lineTo(x + 14, y);
+    }
+    g.closePath();
+    g.fill();
+  }
+
+  // Neon glow in night mode
+  if (isNight) {
+    g.strokeStyle = "rgba(0, 229, 255, 0.75)";
+    g.lineWidth = 2.5;
+    rr(g, 12, 12, W - 24, 68, 5);
     g.stroke();
   }
-  pineCache = { canvas: c, worldW: 1.5, collide: 0.18 };
-  return pineCache;
+
+  const info: SpriteInfo = { canvas: c, worldW: 0.8, collide: 0.08 };
+  chevronCaches.set(key, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// STRAPPED RACING TIRE SAFETY WALL
+// ------------------------------------------------------------------
+const tireWallCaches = new Map<string, SpriteInfo>();
+export function tireWallSprite(weather: WeatherMode = "sunset"): SpriteInfo {
+  const hit = tireWallCaches.get(weather);
+  if (hit) return hit;
+
+  const W = 220, H = 120;
+  const { c, g } = make(W, H);
+
+  // Ground shadow
+  g.fillStyle = "rgba(10, 8, 14, 0.4)";
+  g.beginPath();
+  g.ellipse(W / 2, H - 8, 100, 14, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // 3 tire stacks side by side, each 3 tires high
+  const stacks = 3;
+  const tireW = 62, tireH = 26;
+
+  for (let col = 0; col < stacks; col++) {
+    const tx = 18 + col * 64;
+    for (let row = 2; row >= 0; row--) {
+      const ty = H - 24 - (2 - row) * 22;
+      const isRed = (col + row) % 2 === 0;
+
+      // Tire body
+      g.fillStyle = isRed ? "#dc2626" : "#f1f5f9";
+      rr(g, tx, ty, tireW, tireH, 6);
+      g.fill();
+
+      // Tire rubber shadow & grooving
+      g.fillStyle = isRed ? "#991b1b" : "#94a3b8";
+      rr(g, tx + 4, ty + 4, tireW - 8, tireH - 8, 4);
+      g.fill();
+
+      // Hollow tire center hole
+      g.fillStyle = "#0f172a";
+      g.beginPath();
+      g.ellipse(tx + tireW / 2, ty + tireH / 2, 16, 6, 0, 0, Math.PI * 2);
+      g.fill();
+
+      // Top specular highlight
+      g.strokeStyle = "rgba(255, 255, 255, 0.5)";
+      g.lineWidth = 1.6;
+      g.beginPath();
+      g.moveTo(tx + 6, ty + 2);
+      g.lineTo(tx + tireW - 6, ty + 2);
+      g.stroke();
+    }
+  }
+
+  // Heavy black industrial safety strap holding all stacks together
+  g.fillStyle = "#090d16";
+  g.fillRect(10, H - 56, W - 20, 10);
+  g.strokeStyle = "#38bdf8";
+  g.lineWidth = 1.5;
+  g.strokeRect(10, H - 56, W - 20, 10);
+
+  const info: SpriteInfo = { canvas: c, worldW: 1.15, collide: 0.35 };
+  tireWallCaches.set(weather, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// CIRCUIT MARSHAL SAFETY POST
+// ------------------------------------------------------------------
+const marshalCaches = new Map<string, SpriteInfo>();
+export function marshalPostSprite(weather: WeatherMode = "sunset"): SpriteInfo {
+  const hit = marshalCaches.get(weather);
+  if (hit) return hit;
+
+  const W = 180, H = 220;
+  const { c, g } = make(W, H);
+  const cx = W / 2;
+
+  // Ground shadow
+  g.fillStyle = "rgba(10, 8, 14, 0.35)";
+  g.beginPath();
+  g.ellipse(cx, H - 8, 65, 14, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // 4 steel stilt columns
+  g.fillStyle = "#1e222b";
+  g.fillRect(cx - 45, 120, 8, 90);
+  g.fillRect(cx - 30, 120, 6, 90);
+  g.fillRect(cx + 24, 120, 6, 90);
+  g.fillRect(cx + 37, 120, 8, 90);
+
+  // Cross braces
+  g.strokeStyle = "#2e3442";
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(cx - 45, 130); g.lineTo(cx + 45, 205);
+  g.moveTo(cx + 45, 130); g.lineTo(cx - 45, 205);
+  g.stroke();
+
+  // Raised platform deck
+  g.fillStyle = "#475569";
+  rr(g, cx - 55, 114, 110, 12, 3);
+  g.fill();
+
+  // Safety cabin enclosure
+  g.fillStyle = "#f8fafc";
+  rr(g, cx - 45, 52, 90, 64, 4);
+  g.fill();
+
+  // FIA blue / red racing stripe on cabin
+  g.fillStyle = "#2563eb";
+  g.fillRect(cx - 45, 96, 90, 10);
+  g.fillStyle = "#dc2626";
+  g.fillRect(cx - 45, 106, 90, 4);
+
+  // Viewing windows
+  g.fillStyle = "#0f172a";
+  rr(g, cx - 38, 58, 76, 32, 2);
+  g.fill();
+  g.fillStyle = "rgba(147, 197, 253, 0.65)";
+  g.fillRect(cx - 35, 60, 70, 28);
+
+  // Curved corrugated weather roof
+  g.fillStyle = "#1e293b";
+  g.beginPath();
+  g.moveTo(cx - 60, 52);
+  g.quadraticCurveTo(cx, 32, cx + 60, 52);
+  g.lineTo(cx + 56, 44);
+  g.quadraticCurveTo(cx, 24, cx - 56, 44);
+  g.closePath();
+  g.fill();
+
+  // Safety flag mast with waving green racing flag
+  g.strokeStyle = "#94a3b8";
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(cx + 52, 48);
+  g.lineTo(cx + 52, 6);
+  g.stroke();
+
+  // Waving Green Flag
+  g.fillStyle = "#22c55e";
+  g.beginPath();
+  g.moveTo(cx + 52, 8);
+  g.quadraticCurveTo(cx + 66, 12, cx + 80, 8);
+  g.quadraticCurveTo(cx + 68, 24, cx + 80, 30);
+  g.quadraticCurveTo(cx + 66, 26, cx + 52, 30);
+  g.closePath();
+  g.fill();
+
+  const info: SpriteInfo = { canvas: c, worldW: 0.95, collide: 0.25 };
+  marshalCaches.set(weather, info);
+  return info;
+}
+
+// ------------------------------------------------------------------
+// OVERHEAD GRAND PRIX START/FINISH GANTRY
+// ------------------------------------------------------------------
+const gantryCaches = new Map<string, SpriteInfo>();
+export function gantrySprite(weather: WeatherMode = "sunset"): SpriteInfo {
+  const hit = gantryCaches.get(weather);
+  if (hit) return hit;
+
+  const W = 520, H = 260;
+  const { c, g } = make(W, H);
+
+  // Left & Right lattice support pillars
+  const pillars = [24, W - 64];
+  for (const px of pillars) {
+    g.fillStyle = "#1e222b";
+    rr(g, px, 38, 40, H - 42, 4);
+    g.fill();
+
+    // Steel lattice struts
+    g.strokeStyle = "#384152";
+    g.lineWidth = 2.5;
+    for (let y = 45; y < H - 20; y += 22) {
+      g.beginPath();
+      g.moveTo(px, y); g.lineTo(px + 40, y + 22);
+      g.moveTo(px + 40, y); g.lineTo(px, y + 22);
+      g.stroke();
+    }
+  }
+
+  // Overhead main horizontal box truss spanning across pillars
+  const trussY = 24, trussH = 54;
+  g.fillStyle = "#0f172a";
+  rr(g, 10, trussY, W - 20, trussH, 6);
+  g.fill();
+
+  // LED Matrix billboard inside truss
+  g.fillStyle = "#020617";
+  rr(g, 70, trussY + 6, W - 140, trussH - 12, 4);
+  g.fill();
+
+  // Digital race championship text
+  g.save();
+  g.fillStyle = "#facc15";
+  g.font = "italic 900 24px 'Chakra Petch', Arial";
+  g.textAlign = "center";
+  g.shadowColor = "#facc15";
+  g.shadowBlur = 12;
+  g.fillText("APEX HORIZON // GRAND PRIX CIRCUIT", W / 2, trussY + 34);
+  g.restore();
+
+  // 5 FIA starting lights suspended underneath truss
+  const lightsY = trussY + trussH + 4;
+  const lBoxW = 34, lBoxH = 22;
+  const startX = W / 2 - (5 * (lBoxW + 8)) / 2;
+
+  for (let i = 0; i < 5; i++) {
+    const lx = startX + i * (lBoxW + 8);
+    // Housing box
+    g.fillStyle = "#0f172a";
+    rr(g, lx, lightsY, lBoxW, lBoxH, 4);
+    g.fill();
+    // Glowing red LED lamp
+    const ledGrad = g.createRadialGradient(lx + lBoxW / 2, lightsY + lBoxH / 2, 2, lx + lBoxW / 2, lightsY + lBoxH / 2, 10);
+    ledGrad.addColorStop(0, "#ffffff");
+    ledGrad.addColorStop(0.3, "#ef4444");
+    ledGrad.addColorStop(1, "#7f1d1d");
+    g.fillStyle = ledGrad;
+    g.beginPath();
+    g.arc(lx + lBoxW / 2, lightsY + lBoxH / 2, 8, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // Checkered flag banners flanking gantry
+  const flagW = 32, flagH = 24;
+  for (let ci = 0; ci < 2; ci++) {
+    const fx = ci === 0 ? 30 : W - 62;
+    for (let r = 0; r < 3; r++) {
+      for (let col = 0; col < 4; col++) {
+        g.fillStyle = (r + col) % 2 === 0 ? "#ffffff" : "#090d16";
+        g.fillRect(fx + col * (flagW / 4), trussY + 8 + r * (flagH / 3), flagW / 4, flagH / 3);
+      }
+    }
+  }
+
+  const info: SpriteInfo = { canvas: c, worldW: 2.8, collide: 0 };
+  gantryCaches.set(weather, info);
+  return info;
 }
 
 // ------------------------------------------------------------------

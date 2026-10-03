@@ -15,6 +15,8 @@ import {
 import { buildTrack, type TrackData, type Segment, type SpritePlacement } from "./track";
 import {
   carSprite, palmSprite, pineSprite, billboardSprite, lampSprite,
+  shrubSprite, rockSprite, brakeMarkerSprite, chevronSprite,
+  tireWallSprite, marshalPostSprite, gantrySprite,
   skyLayer, ridgeLayer, cloudSprite, type SpriteInfo, type Paint,
 } from "./sprites";
 import type { AudioEngine } from "./audio";
@@ -652,12 +654,17 @@ export class RaceEngine {
     else this.speed += COAST_DECEL * dt;
     if (this.driftNow) this.speed -= maxSpeed * 0.11 * dt;
 
-    // ---- offroad ----
-    this.offroadNow = Math.abs(this.playerX) > 1.04;
+    // ---- offroad / curb / gravel ----
+    const absX = Math.abs(this.playerX);
+    const onCurb = absX > 0.98 && absX <= 1.15;
+    this.offroadNow = absX > 1.15;
+    if (onCurb && this.speed > 600) {
+      this.shake = Math.max(this.shake, 0.12);
+    }
     if (this.offroadNow && this.speed > OFFROAD_LIMIT * (0.8 + this.car.grip * 0.25)) {
       this.speed += OFFROAD_DECEL * dt;
       this.dust(dt);
-      this.shake = Math.max(this.shake, 0.3);
+      this.shake = Math.max(this.shake, 0.35);
     }
     if (this.weather === "rain") {
       this.waterSpray(dt);
@@ -781,6 +788,24 @@ export class RaceEngine {
 
   private collideSprites(playerSeg: Segment) {
     if (this.collCooldown > 0) return;
+
+    // Continuous Armco guardrail and tire wall collision checks
+    if (playerSeg.barrierLeft && this.playerX < -1.24) {
+      this.playerX = -1.21;
+      this.crash(1, 0.7);
+      return;
+    }
+    if (playerSeg.barrierRight && this.playerX > 1.24) {
+      this.playerX = 1.21;
+      this.crash(-1, 0.7);
+      return;
+    }
+    if (playerSeg.tireWallRight && this.playerX > 1.20) {
+      this.playerX = 1.17;
+      this.crash(-1, 0.85);
+      return;
+    }
+
     const N = this.track.segments.length;
     for (let k = 0; k < 3; k++) {
       const seg = this.track.segments[(playerSeg.index + k) % N];
@@ -983,10 +1008,17 @@ export class RaceEngine {
 
   private spriteInfo(s: SpritePlacement): SpriteInfo {
     switch (s.kind) {
-      case "palm": return palmSprite();
-      case "pine": return pineSprite();
+      case "palm": return palmSprite(s.variant);
+      case "pine": return pineSprite(s.variant);
       case "bill": return billboardSprite(s.variant, this.weather);
       case "lamp": return lampSprite(this.weather);
+      case "shrub": return shrubSprite(s.variant, this.weather);
+      case "rock": return rockSprite(s.variant, this.weather);
+      case "brake": return brakeMarkerSprite(s.variant);
+      case "chevron": return chevronSprite(s.variant === 0 ? "left" : "right", this.weather);
+      case "tirewall": return tireWallSprite(this.weather);
+      case "marshal": return marshalPostSprite(this.weather);
+      case "gantry": return gantrySprite(this.weather);
     }
   }
 
@@ -1202,29 +1234,136 @@ export class RaceEngine {
     const x2 = s2.x, y2 = s2.y, w2 = s2.w;
     if (y1 <= y2) return;
 
-    // grass strip
-    ctx.fillStyle = seg.alt ? palette.grassLight : palette.grassDark;
-    ctx.fillRect(0, y2, width, y1 - y2);
+    // -------------------------------------------------------------
+    // 1. LATERAL GEOMETRY & BOUNDARIES (Perspective projection)
+    // -------------------------------------------------------------
+    // Curb width with apex widening multiplier
+    const curbM = seg.curbMult || 1.0;
+    const r1 = w1 * 0.14 * curbM;
+    const r2 = w2 * 0.14 * curbM;
 
-    const r1 = w1 * 0.13;
-    const r2 = w2 * 0.13;
-    // rumble strips
+    // Gravel runoff bed width (expanded on outside of high-speed turns)
+    const gw1_l = w1 * (seg.gravelRunoff === -1 || seg.gravelRunoff === 2 ? 0.44 : 0.22);
+    const gw2_l = w2 * (seg.gravelRunoff === -1 || seg.gravelRunoff === 2 ? 0.44 : 0.22);
+    const gw1_r = w1 * (seg.gravelRunoff === 1 || seg.gravelRunoff === 2 ? 0.44 : 0.22);
+    const gw2_r = w2 * (seg.gravelRunoff === 1 || seg.gravelRunoff === 2 ? 0.44 : 0.22);
+
+    // Natural soil verge transition width
+    const vw1 = w1 * 0.22;
+    const vw2 = w2 * 0.22;
+
+    // Left lateral positions (inside to outside)
+    const lx1_edge = x1 - w1;
+    const lx2_edge = x2 - w2;
+    const lx1_curb = lx1_edge - r1;
+    const lx2_curb = lx2_edge - r2;
+    const lx1_grav = lx1_curb - gw1_l;
+    const lx2_grav = lx2_curb - gw2_l;
+    const lx1_verge = lx1_grav - vw1;
+    const lx2_verge = lx2_grav - vw2;
+
+    // Right lateral positions (inside to outside)
+    const rx1_edge = x1 + w1;
+    const rx2_edge = x2 + w2;
+    const rx1_curb = rx1_edge + r1;
+    const rx2_curb = rx2_edge + r2;
+    const rx1_grav = rx1_curb + gw1_r;
+    const rx2_grav = rx2_curb + gw2_r;
+    const rx1_verge = rx1_grav + vw1;
+    const rx2_verge = rx2_grav + vw2;
+
+    // -------------------------------------------------------------
+    // 2. OUTER NATURAL TERRAIN & COASTAL OCEAN
+    // -------------------------------------------------------------
+    // ---- Left Outer Zone ----
+    if (seg.coastalSide === -1) {
+      // Coastal Ocean Water
+      ctx.fillStyle = seg.alt ? palette.waterLight : palette.waterDark;
+      this.poly(0, y1, lx1_verge, y1, lx2_verge, y2, 0, y2);
+
+      // Rolling ocean surf foam breaker line along shoreline
+      const wavePhase = Math.sin(this.time * 2.6 + seg.index * 0.25);
+      const foam1 = w1 * (0.065 + wavePhase * 0.02);
+      const foam2 = w2 * (0.065 + wavePhase * 0.02);
+      ctx.fillStyle = palette.waterFoam;
+      this.poly(lx1_verge - foam1, y1, lx1_verge, y1, lx2_verge, y2, lx2_verge - foam2, y2);
+    } else {
+      // Rolling green/countryside turf
+      ctx.fillStyle = seg.alt ? palette.grassLight : palette.grassDark;
+      this.poly(0, y1, lx1_verge, y1, lx2_verge, y2, 0, y2);
+    }
+
+    // ---- Right Outer Zone ----
+    if (seg.coastalSide === 1) {
+      ctx.fillStyle = seg.alt ? palette.waterLight : palette.waterDark;
+      this.poly(rx1_verge, y1, width, y1, width, y2, rx2_verge, y2);
+    } else {
+      ctx.fillStyle = seg.alt ? palette.grassLight : palette.grassDark;
+      this.poly(rx1_verge, y1, width, y1, width, y2, rx2_verge, y2);
+    }
+
+    // -------------------------------------------------------------
+    // 3. SOIL VERGE & GRAVEL RUNOFF TRAPS
+    // -------------------------------------------------------------
+    // Natural soil verge transition
+    ctx.fillStyle = seg.alt ? palette.vergeLight : palette.vergeDark;
+    this.poly(lx1_verge, y1, lx1_grav, y1, lx2_grav, y2, lx2_verge, y2);
+    this.poly(rx1_grav, y1, rx1_verge, y1, rx2_verge, y2, rx2_grav, y2);
+
+    // Gravel runoff bed
+    ctx.fillStyle = seg.alt ? palette.gravelLight : palette.gravelDark;
+    this.poly(lx1_grav, y1, lx1_curb, y1, lx2_curb, y2, lx2_grav, y2);
+    this.poly(rx1_curb, y1, rx1_grav, y1, rx2_grav, y2, rx2_curb, y2);
+
+    // Subtle raked gravel texture line in alternating bands
+    if (seg.index % 2 === 0) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.07)";
+      const lRake1 = (lx1_grav + lx1_curb) * 0.5;
+      const lRake2 = (lx2_grav + lx2_curb) * 0.5;
+      const rRake1 = (rx1_curb + rx1_grav) * 0.5;
+      const rRake2 = (rx2_curb + rx2_grav) * 0.5;
+      const rw1 = Math.max(1, w1 * 0.012);
+      const rw2 = Math.max(1, w2 * 0.012);
+      this.poly(lRake1 - rw1, y1, lRake1 + rw1, y1, lRake2 + rw2, y2, lRake2 - rw2, y2);
+      this.poly(rRake1 - rw1, y1, rRake1 + rw1, y1, rRake2 + rw2, y2, rRake2 - rw2, y2);
+    }
+
+    // -------------------------------------------------------------
+    // 4. 3D BEVELED RUMBLE CURBS (KERBS)
+    // -------------------------------------------------------------
+    // Outer drop shadow (depth between curb lip and gravel)
+    const sh1 = Math.max(1, w1 * 0.018);
+    const sh2 = Math.max(1, w2 * 0.018);
+    ctx.fillStyle = palette.curbShadow;
+    this.poly(lx1_curb - sh1, y1, lx1_curb, y1, lx2_curb, y2, lx2_curb - sh2, y2);
+    this.poly(rx1_curb, y1, rx1_curb + sh1, y1, rx2_curb + sh2, y2, rx2_curb, y2);
+
+    // Main rumble curb face (alternating contrasting teeth)
     ctx.fillStyle = seg.alt ? palette.rumbleLight : palette.rumbleDark;
-    this.poly(x1 - w1 - r1, y1, x1 - w1, y1, x2 - w2, y2, x2 - w2 - r2, y2);
-    this.poly(x1 + w1 + r1, y1, x1 + w1, y1, x2 + w2, y2, x2 + w2 + r2, y2);
+    this.poly(lx1_curb, y1, lx1_edge, y1, lx2_edge, y2, lx2_curb, y2);
+    this.poly(rx1_edge, y1, rx1_curb, y1, rx2_curb, y2, rx2_edge, y2);
 
-    // road
+    // Inner bright curb lip highlight
+    const lip1 = Math.max(1, w1 * 0.014);
+    const lip2 = Math.max(1, w2 * 0.014);
+    ctx.fillStyle = palette.curbLip;
+    this.poly(lx1_edge - lip1, y1, lx1_edge, y1, lx2_edge, y2, lx2_edge - lip2, y2);
+    this.poly(rx1_edge, y1, rx1_edge + lip1, y1, rx2_edge + lip2, y2, rx2_edge, y2);
+
+    // -------------------------------------------------------------
+    // 5. MAIN ROAD SURFACE & ASPHALT
+    // -------------------------------------------------------------
     ctx.fillStyle = seg.alt ? palette.roadLight : palette.roadDark;
-    this.poly(x1 - w1, y1, x1 + w1, y1, x2 + w2, y2, x2 - w2, y2);
+    this.poly(lx1_edge, y1, rx1_edge, y1, rx2_edge, y2, lx2_edge, y2);
 
-    // wet asphalt specular reflection in rain
+    // Wet asphalt specular reflection in rain
     if (palette.wetness > 0) {
       const wetAlpha = palette.wetness * 0.14 * (1 - seg.fog * 0.4);
       ctx.fillStyle = `rgba(186, 230, 253, ${wetAlpha})`;
       this.poly(x1 - w1 * 0.32, y1, x1 + w1 * 0.32, y1, x2 + w2 * 0.32, y2, x2 - w2 * 0.32, y2);
     }
 
-    // persistent rubber tire skidmarks
+    // Persistent rubber tire skidmarks
     if (seg.skids && seg.skids.length > 0) {
       for (const skid of seg.skids) {
         const skidAlpha = skid.alpha * (1 - seg.fog * 0.65);
@@ -1232,42 +1371,42 @@ export class RaceEngine {
         ctx.fillStyle = `rgba(16, 12, 20, ${skidAlpha})`;
 
         // Left tire skidmark
-        const lx1 = x1 + skid.leftOffset * w1;
-        const lx2 = x2 + skid.leftOffset * w2;
-        const lw1 = skid.width * w1;
-        const lw2 = skid.width * w2;
-        this.poly(lx1 - lw1, y1, lx1 + lw1, y1, lx2 + lw2, y2, lx2 - lw2, y2);
+        const slx1 = x1 + skid.leftOffset * w1;
+        const slx2 = x2 + skid.leftOffset * w2;
+        const slw1 = skid.width * w1;
+        const slw2 = skid.width * w2;
+        this.poly(slx1 - slw1, y1, slx1 + slw1, y1, slx2 + slw2, y2, slx2 - slw2, y2);
 
         // Right tire skidmark
-        const rx1 = x1 + skid.rightOffset * w1;
-        const rx2 = x2 + skid.rightOffset * w2;
-        const rw1 = skid.width * w1;
-        const rw2 = skid.width * w2;
-        this.poly(rx1 - rw1, y1, rx1 + rw1, y1, rx2 + rw2, y2, rx2 - rw2, y2);
+        const srx1 = x1 + skid.rightOffset * w1;
+        const srx2 = x2 + skid.rightOffset * w2;
+        const srw1 = skid.width * w1;
+        const srw2 = skid.width * w2;
+        this.poly(srx1 - srw1, y1, srx1 + srw1, y1, srx2 + srw2, y2, srx2 - srw2, y2);
       }
     }
 
-    // edge glow lines
+    // Edge glow lines
     ctx.fillStyle = palette.edge;
-    const e1 = w1 * 0.014, e2 = w2 * 0.014;
-    this.poly(x1 - w1 + e1, y1, x1 - w1 + e1 * 2, y1, x2 - w2 + e2 * 2, y2, x2 - w2 + e2, y2);
-    this.poly(x1 + w1 - e1 * 2, y1, x1 + w1 - e1, y1, x2 + w2 - e2, y2, x2 + w2 - e2 * 2, y2);
+    const e1 = w1 * 0.015, e2 = w2 * 0.015;
+    this.poly(lx1_edge + e1, y1, lx1_edge + e1 * 2, y1, lx2_edge + e2 * 2, y2, lx2_edge + e2, y2);
+    this.poly(rx1_edge - e1 * 2, y1, rx1_edge - e1, y1, rx2_edge - e2, y2, rx2_edge - e2 * 2, y2);
 
-    // lane dashes
+    // Lane dashes
     if (seg.index % (3 * 2) < 3) {
       ctx.fillStyle = palette.lane;
       const l1 = w1 * 0.016, l2 = w2 * 0.016;
       this.poly(x1 - l1, y1, x1 + l1, y1, x2 + l2, y2, x2 - l2, y2);
     }
 
-    // cat's eye reflectors along edges in dark environments
+    // Cat's eye reflectors along edges in dark environments
     if (this.weather !== "sunset" && seg.index % 6 === 0) {
-      ctx.fillStyle = this.weather === "night" ? "rgba(0, 229, 255, 0.9)" : "rgba(255, 230, 120, 0.85)";
-      ctx.fillRect(x1 - w1 - 2, y1 - 2, 4, 3);
-      ctx.fillRect(x1 + w1 - 2, y1 - 2, 4, 3);
+      ctx.fillStyle = this.weather === "night" ? "rgba(0, 229, 255, 0.95)" : "rgba(255, 230, 120, 0.85)";
+      ctx.fillRect(lx1_edge - 2, y1 - 2, 4, 3);
+      ctx.fillRect(rx1_edge - 2, y1 - 2, 4, 3);
     }
 
-    // start line checkers
+    // Start line checkers
     if (seg.isStart) {
       const cols = 14;
       for (let ci = 0; ci < cols; ci++) {
@@ -1278,13 +1417,96 @@ export class RaceEngine {
       }
     }
 
-    // fog
+    // -------------------------------------------------------------
+    // 6. CONTINUOUS 3D ARMCO GUARDRAILS & TIRE SAFETY WALLS
+    // -------------------------------------------------------------
+    this.renderRoadsideBarriers(seg, x1, y1, w1, x2, y2, w2, s1.scale, s2.scale, palette);
+
+    // -------------------------------------------------------------
+    // 7. ATMOSPHERIC DISTANCE FOG DISSOLVE
+    // -------------------------------------------------------------
     const a = (1 - seg.fog) * 0.92;
     if (a > 0.012) {
       ctx.globalAlpha = a;
       ctx.fillStyle = palette.fog;
       ctx.fillRect(0, y2, width, y1 - y2);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  private renderRoadsideBarriers(
+    seg: Segment,
+    x1: number, y1: number, w1: number,
+    x2: number, y2: number, w2: number,
+    scale1: number, scale2: number,
+    palette: ScenePalette,
+  ) {
+    const { ctx } = this;
+
+    // Continuous Armco Corrugated Steel Guardrails
+    const sides: ("left" | "right")[] = [];
+    if (seg.barrierLeft) sides.push("left");
+    if (seg.barrierRight) sides.push("right");
+
+    for (const side of sides) {
+      const isLeft = side === "left";
+      const dir = isLeft ? -1 : 1;
+      const curbM = seg.curbMult || 1.0;
+      const offset = dir * (1.24 + (curbM > 1.2 ? (curbM - 1.2) * 0.12 : 0));
+
+      const bx1 = x1 + offset * w1;
+      const bx2 = x2 + offset * w2;
+
+      // Armco barrier height in pixels
+      const bh1 = Math.max(3, 44 * scale1 * (this.height / 2));
+      const bh2 = Math.max(2, 44 * scale2 * (this.height / 2));
+
+      // Steel I-beam support posts (every 2 segments)
+      if (seg.index % 2 === 0) {
+        const postW1 = Math.max(2, 7 * scale1 * (this.width / 2));
+        ctx.fillStyle = palette.barrierPost;
+        ctx.fillRect(bx1 - postW1 / 2, y1 - bh1 * 1.15, postW1, bh1 * 1.15);
+      }
+
+      // Main galvanized corrugated steel rail plate
+      ctx.fillStyle = palette.barrierPlate;
+      this.poly(bx1, y1 - bh1 * 0.15, bx1, y1 - bh1 * 0.95, bx2, y2 - bh2 * 0.95, bx2, y2 - bh2 * 0.15);
+
+      // Top metallic specular shine lip
+      ctx.fillStyle = "rgba(255, 255, 255, 0.42)";
+      this.poly(bx1, y1 - bh1 * 0.95, bx1, y1 - bh1 * 0.78, bx2, y2 - bh2 * 0.78, bx2, y2 - bh2 * 0.95);
+
+      // Middle corrugated shadow groove
+      ctx.fillStyle = "rgba(10, 15, 22, 0.55)";
+      this.poly(bx1, y1 - bh1 * 0.62, bx1, y1 - bh1 * 0.44, bx2, y2 - bh2 * 0.44, bx2, y2 - bh2 * 0.62);
+
+      // Retro-reflective safety delineator tabs (amber/red on right, white/cyan on left)
+      if (seg.index % 4 === 0) {
+        ctx.fillStyle = isLeft ? palette.barrierReflectLeft : palette.barrierReflectRight;
+        const refH = Math.max(2, bh1 * 0.28);
+        const refW = Math.max(2, 5 * scale1 * (this.width / 2));
+        ctx.fillRect(bx1 - refW / 2, y1 - bh1 * 0.72, refW, refH);
+      }
+    }
+
+    // Continuous Heavy Strapped Tire Safety Walls (Hairpin / Crash apexes)
+    if (seg.tireWallLeft || seg.tireWallRight) {
+      const isLeft = seg.tireWallLeft;
+      const dir = isLeft ? -1 : 1;
+      const twOffset = dir * 1.34;
+      const tx1 = x1 + twOffset * w1;
+      const tx2 = x2 + twOffset * w2;
+      const th1 = Math.max(3, 46 * scale1 * (this.height / 2));
+      const th2 = Math.max(2, 46 * scale2 * (this.height / 2));
+
+      // Alternating red and white high-impact tire segments
+      const isRed = Math.floor(seg.index / 2) % 2 === 0;
+      ctx.fillStyle = isRed ? "#dc2626" : "#f1f5f9";
+      this.poly(tx1, y1, tx1, y1 - th1, tx2, y2 - th2, tx2, y2);
+
+      // Black rubber top rim depth
+      ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+      this.poly(tx1, y1 - th1, tx1, y1 - th1 * 0.82, tx2, y2 - th2 * 0.82, tx2, y2 - th2);
     }
   }
 
@@ -1311,13 +1533,26 @@ export class RaceEngine {
     const dx = sx - dw / 2;
     const dy = sy - dh;
     const clipY = seg.clip;
+
+    // Atmospheric distance blending for scenery sprites
+    if (seg.fog < 0.96) {
+      this.ctx.globalAlpha = Math.max(0.12, seg.fog);
+    }
+
     if (clipY && dy + dh > clipY) {
       const visH = clipY - dy;
-      if (visH <= 0) return;
+      if (visH <= 0) {
+        this.ctx.globalAlpha = 1;
+        return;
+      }
       const srcH = (info.canvas.height * visH) / dh;
       this.ctx.drawImage(info.canvas, 0, 0, info.canvas.width, srcH, dx, dy, dw, visH);
     } else {
       this.ctx.drawImage(info.canvas, dx, dy, dw, dh);
+    }
+
+    if (seg.fog < 0.96) {
+      this.ctx.globalAlpha = 1;
     }
   }
 
