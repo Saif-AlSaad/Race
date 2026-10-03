@@ -278,11 +278,18 @@ export class RaceEngine {
     this.lastT = performance.now();
     const loop = (t: number) => {
       if (this.destroyed) return;
-      const dt = clamp((t - this.lastT) / 1000, 0, 1 / 30);
-      this.lastT = t;
-      this.update(dt);
-      this.render();
-      this.raf = requestAnimationFrame(loop);
+      try {
+        const dt = clamp((t - this.lastT) / 1000, 0, 1 / 30);
+        this.lastT = t;
+        this.update(dt);
+        this.render();
+      } catch (err) {
+        console.error("[RaceEngine] Render loop exception:", err);
+      } finally {
+        if (!this.destroyed) {
+          this.raf = requestAnimationFrame(loop);
+        }
+      }
     };
     this.raf = requestAnimationFrame(loop);
   }
@@ -409,8 +416,10 @@ export class RaceEngine {
     const o = this.track.outline;
     const N = this.track.segments.length;
     const toPt = (z: number) => {
+      if (!Number.isFinite(z)) z = 0;
       const idx = ((Math.floor(z / SEGMENT_LENGTH) % N) + N) % N;
-      return o[Math.floor(idx / 4) % o.length];
+      const ptIdx = Math.floor(idx / 4) % (o.length || 1);
+      return o[ptIdx] || { x: 0.5, y: 0.5 };
     };
     const dots = this.opponents.map((op) => ({ ...toPt(op.z), color: "#c8c2d8", player: false }));
     dots.push({ ...toPt(this.position), color: "#ff9e3d", player: true });
@@ -573,7 +582,9 @@ export class RaceEngine {
 
   private findSegment(z: number): Segment {
     const N = this.track.segments.length;
-    return this.track.segments[((Math.floor(z / SEGMENT_LENGTH) % N) + N) % N];
+    if (!Number.isFinite(z)) z = 0;
+    const idx = ((Math.floor(z / SEGMENT_LENGTH) % N) + N) % N;
+    return this.track.segments[idx] || this.track.segments[0];
   }
 
   private gapAhead(): string | null {
@@ -1331,6 +1342,7 @@ export class RaceEngine {
   private spawnTireSmoke(leftX: number, rightX: number, y: number, intensity = 1.0) {
     if (this.tireSmoke.length > 90) return;
     for (const tx of [leftX, rightX]) {
+      const dur = 0.52 + Math.random() * 0.32;
       this.tireSmoke.push({
         x: tx + (Math.random() - 0.5) * 8,
         y: y - 2,
@@ -1338,8 +1350,8 @@ export class RaceEngine {
         vy: -15 - Math.random() * 24,
         size: 8 + Math.random() * 6,
         maxSize: 34 + Math.random() * 24,
-        life: 0.52 + Math.random() * 0.32,
-        maxLife: 0.52 + Math.random() * 0.32,
+        life: dur,
+        maxLife: dur,
         alpha: 0.65 * intensity,
         color: this.weather === "night" ? "rgba(180, 205, 235, 0.45)" : "rgba(240, 245, 255, 0.55)",
         rot: Math.random() * Math.PI * 2,
@@ -1353,13 +1365,14 @@ export class RaceEngine {
     const colors = ["#38bdf8", "#38bdf8", "#fbbf24", "#c084fc"];
     const sparkColor = colors[tier] || "#38bdf8";
     for (const tx of [leftX, rightX]) {
+      const spDur = 0.28 + Math.random() * 0.2;
       this.driftSparks.push({
         x: tx + (Math.random() - 0.5) * 12,
         y: y - 4,
         vx: (Math.random() - 0.5) * 90 - this.playerVx * 30,
         vy: -30 - Math.random() * 55,
-        life: 0.28 + Math.random() * 0.2,
-        maxLife: 0.28 + Math.random() * 0.2,
+        life: spDur,
+        maxLife: spDur,
         size: 2.2 + Math.random() * 2.5,
         color: sparkColor,
       });
@@ -1377,8 +1390,8 @@ export class RaceEngine {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.rot += s.vRot * dt;
-      const progress = 1 - s.life / s.maxLife;
-      s.size = lerp(s.size, s.maxSize, progress);
+      // Gently expand smoke puff towards maxSize without exceeding or becoming negative
+      s.size = Math.min(s.maxSize, s.size + (s.maxSize - s.size) * Math.min(1, dt * 5.5));
     }
   }
 
@@ -1399,18 +1412,21 @@ export class RaceEngine {
   private renderTireSmoke() {
     const { ctx } = this;
     for (const s of this.tireSmoke) {
-      const a = clamp(Math.sin((s.life / s.maxLife) * Math.PI) * s.alpha, 0, 1);
+      const lifeRatio = clamp(s.life / Math.max(0.001, s.maxLife), 0, 1);
+      const a = clamp(Math.sin(lifeRatio * Math.PI) * s.alpha, 0, 1);
       if (a <= 0.01) continue;
+      const r = Math.max(0.5, s.size);
       ctx.save();
       ctx.translate(s.x, s.y);
       ctx.rotate(s.rot);
-      const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, s.size);
+      const innerR = Math.min(2, r * 0.4);
+      const grad = ctx.createRadialGradient(0, 0, innerR, 0, 0, r);
       grad.addColorStop(0, `rgba(235, 240, 250, ${a * 0.7})`);
       grad.addColorStop(0.5, `rgba(195, 205, 220, ${a * 0.35})`);
       grad.addColorStop(1, "rgba(160, 175, 195, 0)");
       ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.arc(0, 0, s.size, 0, Math.PI * 2);
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
@@ -1419,12 +1435,13 @@ export class RaceEngine {
   private renderDriftSparks() {
     const { ctx } = this;
     for (const sp of this.driftSparks) {
-      const a = clamp(sp.life / sp.maxLife, 0, 1);
+      const a = clamp(sp.life / Math.max(0.001, sp.maxLife), 0, 1);
+      const r = Math.max(0.2, sp.size * a);
       ctx.fillStyle = sp.color;
       ctx.shadowColor = sp.color;
       ctx.shadowBlur = 6;
       ctx.beginPath();
-      ctx.arc(sp.x, sp.y, sp.size * a, 0, Math.PI * 2);
+      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.shadowBlur = 0;
@@ -1975,13 +1992,16 @@ export class RaceEngine {
 
   private renderSprite(seg: Segment, s: SpritePlacement) {
     const info = this.spriteInfo(s);
+    if (!info) return;
     const scale = seg.p1.scr.scale;
+    if (!Number.isFinite(scale) || scale <= 0) return;
     const sx = seg.p1.scr.x + scale * s.offset * ROAD_WIDTH * (this.width / 2);
     const sy = seg.p1.scr.y;
     let dw = info.worldW * ROAD_WIDTH * scale * (this.width / 2);
     if (dw < 1.5) return;
     dw = Math.min(dw, this.width * 1.15);
-    const dh = dw * (info.canvas.height / info.canvas.width);
+    const dh = dw * (info.canvas.height / Math.max(1, info.canvas.width));
+    if (dh < 1) return;
     const dx = sx - dw / 2;
     const dy = sy - dh;
     const clipY = seg.clip;
@@ -1993,14 +2013,19 @@ export class RaceEngine {
 
     if (clipY && dy + dh > clipY) {
       const visH = clipY - dy;
-      if (visH <= 0) {
-        this.ctx.globalAlpha = 1;
+      if (visH <= 0.5) {
+        if (seg.fog < 0.96) this.ctx.globalAlpha = 1;
         return;
       }
-      const srcH = (info.canvas.height * visH) / dh;
-      this.ctx.drawImage(info.canvas, 0, 0, info.canvas.width, srcH, dx, dy, dw, visH);
+      const clampedVisH = Math.min(visH, dh);
+      const srcH = Math.min(info.canvas.height, (info.canvas.height * clampedVisH) / dh);
+      if (srcH > 0.5 && clampedVisH > 0.5 && dw > 0.5) {
+        this.ctx.drawImage(info.canvas, 0, 0, info.canvas.width, srcH, dx, dy, dw, clampedVisH);
+      }
     } else {
-      this.ctx.drawImage(info.canvas, dx, dy, dw, dh);
+      if (dw > 0.5 && dh > 0.5) {
+        this.ctx.drawImage(info.canvas, dx, dy, dw, dh);
+      }
     }
 
     if (seg.fog < 0.96) {
@@ -2010,12 +2035,14 @@ export class RaceEngine {
 
   private renderRival(seg: Segment, o: Opponent) {
     const scale = seg.p1.scr.scale;
+    if (!Number.isFinite(scale) || scale <= 0) return;
     const sx = seg.p1.scr.x + scale * o.offset * ROAD_WIDTH * (this.width / 2);
     const sy = seg.p1.scr.y;
     let dw = o.sprite.worldW * ROAD_WIDTH * scale * (this.width / 2);
     if (dw < 1.5) return;
     dw = Math.min(dw, this.width * 0.86);
-    const dh = dw * (o.sprite.canvas.height / o.sprite.canvas.width);
+    const dh = dw * (o.sprite.canvas.height / Math.max(1, o.sprite.canvas.width));
+    if (dh < 1) return;
     const clipY = seg.clip;
 
     // dynamic body roll & 3D perspective yaw based on road curvature and steering wander
@@ -2037,15 +2064,15 @@ export class RaceEngine {
     const shadowAlpha = 0.38 * (1 - seg.fog * 0.5);
     this.ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
     this.ctx.beginPath();
-    this.ctx.ellipse(0, 0, dw * 0.44, dh * 0.12, 0, 0, Math.PI * 2);
+    this.ctx.ellipse(0, 0, Math.max(1, dw * 0.44), Math.max(1, dh * 0.12), 0, 0, Math.PI * 2);
     this.ctx.fill();
 
     // in dark environments or heavy braking into sharp corners, draw red LED taillight halo behind rival
     const rivalBraking = Math.abs(seg.curve) > 1.2 && o.speed > o.cruise * 0.85;
     if (rivalBraking || this.weather !== "sunset") {
       const glowAlpha = rivalBraking ? 0.95 : 0.65;
-      const glowR = rivalBraking ? dw * 0.65 : dw * 0.5;
-      const glow = this.ctx.createRadialGradient(0, -dh * 0.5, 2, 0, -dh * 0.5, glowR);
+      const glowR = Math.max(1.5, rivalBraking ? dw * 0.65 : dw * 0.5);
+      const glow = this.ctx.createRadialGradient(0, -dh * 0.5, Math.min(1, glowR * 0.3), 0, -dh * 0.5, glowR);
       glow.addColorStop(0, `rgba(255, 30, 45, ${glowAlpha})`);
       glow.addColorStop(0.5, `rgba(255, 10, 30, ${glowAlpha * 0.3})`);
       glow.addColorStop(1, "rgba(0,0,0,0)");
@@ -2057,12 +2084,17 @@ export class RaceEngine {
 
     if (clipY && sy > clipY) {
       const visH = clipY - (sy - dh);
-      if (visH > 0) {
-        const srcH = (o.sprite.canvas.height * visH) / dh;
-        this.ctx.drawImage(o.sprite.canvas, 0, 0, o.sprite.canvas.width, srcH, -dw / 2, -dh, dw, visH);
+      if (visH > 0.5 && dw > 0.5 && dh > 0.5) {
+        const clampedVisH = Math.min(visH, dh);
+        const srcH = Math.min(o.sprite.canvas.height, (o.sprite.canvas.height * clampedVisH) / dh);
+        if (srcH > 0.5) {
+          this.ctx.drawImage(o.sprite.canvas, 0, 0, o.sprite.canvas.width, srcH, -dw / 2, -dh, dw, clampedVisH);
+        }
       }
     } else {
-      this.ctx.drawImage(o.sprite.canvas, -dw / 2, -dh, dw, dh);
+      if (dw > 0.5 && dh > 0.5) {
+        this.ctx.drawImage(o.sprite.canvas, -dw / 2, -dh, dw, dh);
+      }
     }
     this.ctx.restore();
   }
@@ -2113,13 +2145,15 @@ export class RaceEngine {
     ctx.fill();
 
     // high-beam illuminated pavement oval directly in front of the car
-    const roadPool = ctx.createRadialGradient(cx, baseY - dh * 0.25, 10, cx, baseY - dh * 0.25, dw * 1.6);
+    const poolR = Math.max(12, dw * 1.6);
+    const innerPoolR = Math.min(10, poolR * 0.3);
+    const roadPool = ctx.createRadialGradient(cx, baseY - dh * 0.25, innerPoolR, cx, baseY - dh * 0.25, poolR);
     roadPool.addColorStop(0, this.weather === "night" ? "rgba(224, 245, 255, 0.42)" : "rgba(255, 240, 200, 0.38)");
     roadPool.addColorStop(0.5, this.weather === "night" ? "rgba(186, 230, 253, 0.18)" : "rgba(255, 220, 160, 0.14)");
     roadPool.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = roadPool;
     ctx.beginPath();
-    ctx.ellipse(cx, baseY - dh * 0.25, dw * 1.6, dh * 0.55, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, baseY - dh * 0.25, poolR, Math.max(2, dh * 0.55), 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -2129,16 +2163,17 @@ export class RaceEngine {
     const { ctx } = this;
     const color = this.car.accent || "#00e5ff";
     const intense = this.boostNow;
-    const ugRadius = dw * (intense ? 1.35 : 1.05);
+    const ugRadius = Math.max(12, dw * (intense ? 1.35 : 1.05));
+    const innerUg = Math.min(10, ugRadius * 0.3);
 
     ctx.save();
-    const ug = ctx.createRadialGradient(cx, baseY + dh * 0.02, 10, cx, baseY + dh * 0.02, ugRadius);
+    const ug = ctx.createRadialGradient(cx, baseY + dh * 0.02, innerUg, cx, baseY + dh * 0.02, ugRadius);
     ug.addColorStop(0, color + (intense ? "cc" : "88"));
     ug.addColorStop(0.45, color + (intense ? "55" : "28"));
     ug.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = ug;
     ctx.beginPath();
-    ctx.ellipse(cx, baseY + dh * 0.02, ugRadius, dh * 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, baseY + dh * 0.02, ugRadius, Math.max(2, dh * 0.32), 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -2219,11 +2254,12 @@ export class RaceEngine {
 
     // lens splashes
     for (const s of this.rainSplashes) {
-      const alpha = (1 - s.r / s.maxR) * s.alpha;
+      const alpha = Math.max(0, (1 - s.r / Math.max(1, s.maxR)) * s.alpha);
+      const splashR = Math.max(0.2, s.r);
       ctx.strokeStyle = `rgba(224, 242, 254, ${alpha})`;
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.arc(s.x, s.y, splashR, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();

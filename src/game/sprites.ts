@@ -1109,9 +1109,10 @@ export function renderAnimatedRearWheels(
     ctx.translate(wx, wheelY);
 
     // 1. Carbon-Ceramic Brake Rotor with Dynamic Thermal Incandescent Glow
-    if (rotorHeat > 0.04) {
-      const glowR = wheelR * (1.1 + rotorHeat * 0.5);
-      const heatGrad = ctx.createRadialGradient(0, 0, wheelR * 0.2, 0, 0, glowR);
+    if (rotorHeat > 0.04 && wheelR > 1) {
+      const glowR = Math.max(2, wheelR * (1.1 + rotorHeat * 0.5));
+      const innerHeat = Math.min(glowR * 0.35, wheelR * 0.2);
+      const heatGrad = ctx.createRadialGradient(0, 0, innerHeat, 0, 0, glowR);
       heatGrad.addColorStop(0, `rgba(255, 245, 180, ${Math.min(0.98, rotorHeat * 1.1)})`);
       heatGrad.addColorStop(0.35, `rgba(255, 90, 20, ${Math.min(0.9, rotorHeat * 0.95)})`);
       heatGrad.addColorStop(0.7, `rgba(220, 20, 10, ${Math.min(0.65, rotorHeat * 0.7)})`);
@@ -1488,12 +1489,13 @@ export function renderExhaustFlames(
     if (flameLen <= 2) continue;
 
     // Ground tarmac flame glow illumination
-    const groundGlow = ctx.createRadialGradient(fx, fy + flameLen * 0.5, 2, fx, fy + flameLen * 0.5, flameLen * 0.85);
+    const glowR = Math.max(3, flameLen * 0.85);
+    const groundGlow = ctx.createRadialGradient(fx, fy + flameLen * 0.5, Math.min(2, glowR * 0.4), fx, fy + flameLen * 0.5, glowR);
     groundGlow.addColorStop(0, isBoosting || bodyStyle === "cyber" ? "rgba(56, 189, 248, 0.45)" : "rgba(255, 140, 40, 0.45)");
     groundGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.fillStyle = groundGlow;
     ctx.beginPath();
-    ctx.ellipse(fx, fy + flameLen * 0.6, flameW * 2.2, flameLen * 0.45, 0, 0, Math.PI * 2);
+    ctx.ellipse(fx, fy + flameLen * 0.6, Math.max(1, flameW * 2.2), Math.max(1, flameLen * 0.45), 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Flame gradient
