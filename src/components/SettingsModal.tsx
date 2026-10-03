@@ -155,9 +155,10 @@ export default function SettingsModal({
                 </div>
                 <div className="flex border border-white/15 bg-night-950 p-0.5">
                   {[
-                    { val: 0.8, label: "CASUAL" },
+                    { val: 0.75, label: "CASUAL" },
                     { val: 1.0, label: "STD" },
                     { val: 1.25, label: "SHARP" },
+                    { val: 1.5, label: "RACE" },
                   ].map((item) => (
                     <button
                       key={item.val}
@@ -175,6 +176,34 @@ export default function SettingsModal({
                 </div>
               </div>
 
+              {/* Touch Controls Mode */}
+              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <div>
+                  <div className="font-display text-xs tracking-[0.2em] text-white/90">ON-SCREEN TOUCH CONTROLS</div>
+                  <div className="text-[10px] text-white/40">Display on-screen steering & pedals overlay</div>
+                </div>
+                <div className="flex border border-white/15 bg-night-950 p-0.5">
+                  {[
+                    { val: "auto", label: "AUTO" },
+                    { val: "always", label: "ALWAYS" },
+                    { val: "never", label: "OFF" },
+                  ].map((item) => (
+                    <button
+                      key={item.val}
+                      onClick={() => update("touchControls", item.val as "auto" | "always" | "never")}
+                      className={cn(
+                        "px-2.5 py-1 font-display text-[10px] tracking-wider transition-colors",
+                        (settings.touchControls ?? "auto") === item.val
+                          ? "bg-ember-500 text-night-900 font-bold"
+                          : "text-white/60 hover:text-white"
+                      )}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Auto Throttle */}
               <ToggleRow
                 label="AUTO-THROTTLE ASSIST"
@@ -182,6 +211,33 @@ export default function SettingsModal({
                 checked={settings.autoThrottle}
                 onChange={(c) => update("autoThrottle", c)}
               />
+
+              {/* Controls Cheatsheet */}
+              <div className="border border-white/10 bg-night-950/60 p-3.5 space-y-2">
+                <div className="font-display text-[10px] tracking-[0.2em] text-ember-400">CONTROL MAPPINGS</div>
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-white/70">
+                  <div>
+                    <span className="font-bold text-white">KEYBOARD:</span>
+                    <ul className="mt-1 space-y-0.5 text-white/60">
+                      <li>• <span className="text-ember-300">W / ↑ / Z</span>: Accelerate</li>
+                      <li>• <span className="text-ember-300">A / D / ← →</span>: Steer Left / Right</li>
+                      <li>• <span className="text-ember-300">S / ↓</span>: Brake / Reverse</li>
+                      <li>• <span className="text-ember-300">SHIFT / N</span>: Nitro Boost</li>
+                      <li>• <span className="text-ember-300">SPACE / C</span>: Drift Handbrake</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <span className="font-bold text-white">GAMEPAD:</span>
+                    <ul className="mt-1 space-y-0.5 text-white/60">
+                      <li>• <span className="text-sky-300">Left Stick / D-Pad</span>: Steer</li>
+                      <li>• <span className="text-sky-300">RT / A (Cross)</span>: Throttle</li>
+                      <li>• <span className="text-sky-300">LT / X (Square)</span>: Brake</li>
+                      <li>• <span className="text-sky-300">RB / Y (Triangle)</span>: Nitro</li>
+                      <li>• <span className="text-sky-300">LB / B (Circle)</span>: Drift</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
 
               {/* Lap Record Reset */}
               <div className="flex items-center justify-between pt-2">

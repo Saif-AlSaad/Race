@@ -26,7 +26,15 @@ import type { AudioEngine } from "./audio";
 export type GameMode = "attract" | "countdown" | "racing" | "paused" | "finished";
 
 export interface InputState {
-  left: boolean; right: boolean; up: boolean; down: boolean; boost: boolean; drift: boolean;
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  boost: boolean;
+  drift: boolean;
+  steerAnalog?: number; // -1.0 .. +1.0 for analog stick or touch wheel
+  throttleAnalog?: number; // 0.0 .. 1.0
+  brakeAnalog?: number; // 0.0 .. 1.0
 }
 
 export interface Standing {
@@ -106,8 +114,13 @@ const percentRemaining = (n: number, total: number) => (((n % total) + total) % 
 const expFog = (d: number, density: number) => 1 / Math.exp(d * d * density);
 
 export class RaceEngine {
-  input: InputState = { left: false, right: false, up: false, down: false, boost: false, drift: false };
-  touch: InputState = { left: false, right: false, up: false, down: false, boost: false, drift: false };
+  input: InputState = { left: false, right: false, up: false, down: false, boost: false, drift: false, steerAnalog: 0, throttleAnalog: 0, brakeAnalog: 0 };
+  touch: InputState = { left: false, right: false, up: false, down: false, boost: false, drift: false, steerAnalog: 0, throttleAnalog: 0, brakeAnalog: 0 };
+
+  clearInputs() {
+    this.input = { left: false, right: false, up: false, down: false, boost: false, drift: false, steerAnalog: 0, throttleAnalog: 0, brakeAnalog: 0 };
+    this.touch = { left: false, right: false, up: false, down: false, boost: false, drift: false, steerAnalog: 0, throttleAnalog: 0, brakeAnalog: 0 };
+  }
 
   onLap: ((lap: number, lapMs: number, bestMs: number) => void) | null = null;
   onFinish: ((r: RaceResult) => void) | null = null;
@@ -350,11 +363,13 @@ export class RaceEngine {
 
   toAttract() {
     this.reset();
+    this.clearInputs();
     this.mode = "attract";
   }
 
   startGrid() {
     this.reset();
+    this.clearInputs();
     this.mode = "countdown";
   }
 
@@ -363,7 +378,10 @@ export class RaceEngine {
     this.mode = "racing";
     this.raceElapsed = 0;
     this.lapStart = 0;
-    const perfect = this.input.up || this.touch.up;
+    const perfect =
+      this.input.up ||
+      this.touch.up ||
+      (this.input.throttleAnalog !== undefined && this.input.throttleAnalog > 0.4);
     if (perfect) {
       this.speed = 2600;
       this.boostMeter = Math.min(100, this.boostMeter + 25);
@@ -504,6 +522,7 @@ export class RaceEngine {
     this.particles = [];
 
     // Reset advanced physics & animation states
+    this.clearInputs();
     this.playerVx = 0;
     this.yawAngle = 0;
     this.steerAngle = 0;
@@ -570,10 +589,24 @@ export class RaceEngine {
     const i = this.input;
     const t = this.touch;
     if (this.mode === "racing") {
+      let steerAnalog = 0;
+      if (i.steerAnalog !== undefined && Math.abs(i.steerAnalog) > 0.05) {
+        steerAnalog = i.steerAnalog;
+      } else if (t.steerAnalog !== undefined && Math.abs(t.steerAnalog) > 0.05) {
+        steerAnalog = t.steerAnalog;
+      } else {
+        if (i.left || t.left) steerAnalog -= 1;
+        if (i.right || t.right) steerAnalog += 1;
+      }
+
       return {
-        left: i.left || t.left, right: i.right || t.right,
-        up: i.up || t.up, down: i.down || t.down,
-        boost: i.boost || t.boost, drift: i.drift || t.drift,
+        left: i.left || t.left || steerAnalog < -0.15,
+        right: i.right || t.right || steerAnalog > 0.15,
+        up: i.up || t.up || (i.throttleAnalog !== undefined ? i.throttleAnalog > 0.15 : false),
+        down: i.down || t.down || (i.brakeAnalog !== undefined ? i.brakeAnalog > 0.15 : false),
+        boost: i.boost || t.boost,
+        drift: i.drift || t.drift,
+        steerAnalog: clamp(steerAnalog, -1, 1),
       };
     }
     // autopilot (attract / victory lap)
@@ -581,7 +614,7 @@ export class RaceEngine {
     const speedPct = this.speed / BASE_MAX_SPEED;
     const ahead = this.findSegment(this.position + this.playerZ + SEGMENT_LENGTH * 26);
     const steer = clamp(-this.playerX * 1.1 + seg.curve * 0.34 * speedPct + ahead.curve * 0.12 * speedPct, -1, 1);
-    return { left: steer < -0.07, right: steer > 0.07, up: true, down: false, boost: false, drift: false };
+    return { left: steer < -0.07, right: steer > 0.07, up: true, down: false, boost: false, drift: false, steerAnalog: steer };
   }
 
   private update(dt: number) {
@@ -694,23 +727,27 @@ export class RaceEngine {
     // -------------------------------------------------------------
     const sens = this.settings.steeringSensitivity || 1.0;
     let steerTarget = 0;
-    if (c.left) steerTarget -= 1;
-    if (c.right) steerTarget += 1;
+    if (c.steerAnalog !== undefined && Math.abs(c.steerAnalog) > 0.02) {
+      steerTarget = clamp(c.steerAnalog, -1, 1);
+    } else {
+      if (c.left) steerTarget -= 1;
+      if (c.right) steerTarget += 1;
+    }
 
     // Steered front wheel angle with high-speed stability damping
-    const speedSteerSens = lerp(1.0, 0.62, speedPct);
+    const speedSteerSens = lerp(1.0, 0.72, speedPct);
     const targetSteerAngle = steerTarget * 0.52 * speedSteerSens * sens;
-    this.steerAngle = lerp(this.steerAngle, targetSteerAngle, 1 - Math.exp(-dt * 16));
-    this.steerVis = lerp(this.steerVis, steerTarget, 1 - Math.exp(-dt * 9));
+    this.steerAngle = lerp(this.steerAngle, targetSteerAngle, 1 - Math.exp(-dt * 18));
+    this.steerVis = lerp(this.steerVis, steerTarget, 1 - Math.exp(-dt * 12));
 
     // Brake-drift trigger: tapping brake while steering aggressively into a turn
     const justTappedBrake = c.down && !this.wasBraking;
     this.wasBraking = c.down;
-    const brakeDriftTrigger = justTappedBrake && Math.abs(steerTarget) > 0.25 && speedPct > 0.38;
+    const brakeDriftTrigger = justTappedBrake && Math.abs(steerTarget) > 0.25 && speedPct > 0.35;
 
     // Drift initiation & state machine
     const wantsDrift = c.drift || brakeDriftTrigger;
-    if (wantsDrift && Math.abs(steerTarget) > 0 && speedPct > 0.35 && !this.driftNow) {
+    if (wantsDrift && Math.abs(steerTarget) > 0.1 && speedPct > 0.32 && !this.driftNow) {
       this.driftNow = true;
       this.driftDir = steerTarget > 0 ? 1 : -1;
       this.driftTimer = 0;
@@ -719,16 +756,19 @@ export class RaceEngine {
       this.audio.backfire();
     } else if (this.driftNow) {
       // Check if drift is maintained or canceled
-      const stillCornering = Math.abs(steerTarget) > 0 || Math.abs(playerSeg.curve) > 0.5;
-      if (!stillCornering || speedPct < 0.25 || (c.down && this.speed < 1200)) {
+      const holdingDriftKey = c.drift;
+      const stillTurning = Math.abs(steerTarget) > 0 || Math.abs(playerSeg.curve) > 0.35;
+      const shouldExit = (!holdingDriftKey && !stillTurning) || speedPct < 0.22 || (c.down && this.speed < 1000);
+
+      if (shouldExit) {
         // Exit drift & release Mini-Turbo!
         this.driftNow = false;
         if (this.driftTier > 0) {
-          const boostDurations = [0, 0.8, 1.25, 1.8];
+          const boostDurations = [0, 0.85, 1.35, 1.95];
           this.driftBoostTimer = boostDurations[this.driftTier] || 1.0;
           this.audio.driftBoost();
           this.exhaustBackfireTimer = 0.25;
-          this.boostMeter = Math.min(maxBoostCap, this.boostMeter + this.driftTier * 12);
+          this.boostMeter = Math.min(maxBoostCap, this.boostMeter + this.driftTier * 14);
           this.shake = Math.max(this.shake, 0.18);
           this.rollVel += this.driftDir * 28;
         }
@@ -785,18 +825,25 @@ export class RaceEngine {
     // -------------------------------------------------------------
     // 4. LATERAL MOMENTUM & CENTRIFUGAL VELOCITY MODEL
     // -------------------------------------------------------------
-    const corneringStiffness = (3.6 + this.car.grip * gripMult * 1.8) * speedSteerSens * sens;
-    const corneringForce = steerTarget * corneringStiffness * speedPct;
-    const centrifugalForce = -playerSeg.curve * speedPct * speedPct * CENTRIFUGAL * 16.5;
+    const corneringStiffness = (3.8 + this.car.grip * gripMult * 1.8) * speedSteerSens * sens;
+    // Responsive low-speed steering authority for clean recovery & sharp turns
+    const steerAuthority = this.speed > 50 ? lerp(0.65, 1.0, speedPct) : (Math.abs(steerTarget) > 0 ? 0.45 : 0.0);
+    const corneringForce = steerTarget * corneringStiffness * steerAuthority;
+
+    // Calibrated road camber & centrifugal pull: realistic cornering feel without overpowering steering
+    const centrifugalForce = -playerSeg.curve * speedPct * speedPct * CENTRIFUGAL * 0.72;
 
     if (this.driftNow) {
-      const driftLatForce = corneringForce * 0.42 + centrifugalForce * 1.15;
-      this.playerVx = lerp(this.playerVx, driftLatForce, 1 - Math.exp(-dt * 4.5));
+      // Drifting provides sharp apex carving authority (+30%) and controlled lateral slip
+      const driftTurnIn = corneringForce * 1.32;
+      const driftCentrifugal = centrifugalForce * 0.82;
+      const driftLatForce = driftTurnIn + driftCentrifugal;
+      this.playerVx = lerp(this.playerVx, driftLatForce, 1 - Math.exp(-dt * 6.5));
     } else {
       const netLatForce = corneringForce + centrifugalForce;
-      this.playerVx = lerp(this.playerVx, netLatForce, 1 - Math.exp(-dt * 9.5));
+      this.playerVx = lerp(this.playerVx, netLatForce, 1 - Math.exp(-dt * 11.0));
       if (steerTarget === 0 && Math.abs(playerSeg.curve) < 0.2) {
-        this.playerVx *= Math.exp(-dt * 5.5);
+        this.playerVx *= Math.exp(-dt * 6.0);
       }
     }
 
@@ -1092,16 +1139,19 @@ export class RaceEngine {
     // Continuous Armco guardrail and tire wall collision checks
     if (playerSeg.barrierLeft && this.playerX < -1.24) {
       this.playerX = -1.21;
+      this.playerVx = Math.max(0.8, -this.playerVx * 0.4);
       this.crash(1, 0.7);
       return;
     }
     if (playerSeg.barrierRight && this.playerX > 1.24) {
       this.playerX = 1.21;
+      this.playerVx = Math.min(-0.8, -this.playerVx * 0.4);
       this.crash(-1, 0.7);
       return;
     }
     if (playerSeg.tireWallRight && this.playerX > 1.20) {
       this.playerX = 1.17;
+      this.playerVx = Math.min(-0.8, -this.playerVx * 0.4);
       this.crash(-1, 0.85);
       return;
     }
@@ -1149,11 +1199,11 @@ export class RaceEngine {
   }
 
   private crash(dir: number, strength: number) {
-    this.collCooldown = 0.55;
+    this.collCooldown = 0.45;
     this.cleanRace = false;
     this.shake = Math.min(1.2, 0.8 * strength + 0.3);
-    this.speed = Math.max(this.speed * 0.72, 1200);
-    this.playerX += dir * 0.1;
+    this.speed = Math.max(300, this.speed * 0.68);
+    this.playerX += dir * 0.08;
     this.audio.thud(strength);
     // sparks
     const cx = this.width / 2;

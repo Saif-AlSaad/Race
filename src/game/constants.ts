@@ -709,12 +709,13 @@ export interface GameSettings {
   engineVolume: number; // 0..100
   speedUnit: "mph" | "kmh";
   difficulty: DifficultyLevel;
-  steeringSensitivity: number; // 0.8, 1.0, 1.25
+  steeringSensitivity: number; // 0.8, 1.0, 1.25, etc.
   speedLines: boolean;
   cameraShake: number; // 0, 0.5, 1.0, 1.5
   lightTrails: boolean;
   rainEffects: boolean;
   autoThrottle: boolean;
+  touchControls: "auto" | "always" | "never";
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -729,6 +730,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   lightTrails: true,
   rainEffects: true,
   autoThrottle: false,
+  touchControls: "auto",
 };
 
 export function ordinal(n: number): string {

@@ -377,6 +377,10 @@ export default function App() {
     onEscape,
     cycleWeather,
     () => setSettingsOpen((o) => !o),
+    (padName) => {
+      if (padName) pushToast("GAMEPAD CONNECTED", padName, "amber");
+      else pushToast("GAMEPAD DISCONNECTED", undefined, "red");
+    },
   );
 
   // auto-pause on tab switch
@@ -453,14 +457,20 @@ export default function App() {
       {engine && (phase === "racing" || phase === "paused" || phase === "countdown") && (
         <HUD engine={engine} onCycleWeather={cycleWeather} />
       )}
-      {engine && isTouch && phase === "racing" && <TouchControls engine={engine} />}
+      {engine &&
+        (settings.touchControls === "always" || ((settings.touchControls ?? "auto") === "auto" && isTouch)) &&
+        (phase === "racing" || phase === "countdown") && (
+          <TouchControls engine={engine} />
+        )}
 
       {/* controls hint */}
-      {!isTouch && phase === "racing" && showHint && (
-        <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 -translate-x-1/2 animate-fade-up whitespace-nowrap border border-white/10 bg-night-900/60 px-4 py-1.5 text-[10px] font-bold tracking-[0.25em] text-white/55 backdrop-blur-sm">
-          <span className="text-ember-300">SHIFT</span> NITRO · <span className="text-ember-300">SPACE</span> DRIFT · <span className="text-ember-300">V</span> LIGHTING · <span className="text-ember-300">O</span> SETTINGS · <span className="text-ember-300">ESC</span> PAUSE
-        </div>
-      )}
+      {phase === "racing" &&
+        showHint &&
+        !(settings.touchControls === "always" || ((settings.touchControls ?? "auto") === "auto" && isTouch)) && (
+          <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 -translate-x-1/2 animate-fade-up whitespace-nowrap border border-white/10 bg-night-900/60 px-4 py-1.5 text-[10px] font-bold tracking-[0.22em] text-white/70 backdrop-blur-sm">
+            <span className="text-ember-300">W / ↑</span> GAS · <span className="text-ember-300">A/D / ←→</span> STEER · <span className="text-ember-300">S / ↓</span> BRAKE · <span className="text-ember-300">SHIFT</span> NITRO · <span className="text-ember-300">SPACE</span> DRIFT · <span className="text-ember-300">ESC</span> PAUSE
+          </div>
+        )}
 
       {/* sound toggle during race */}
       {phase !== "menu" && (
