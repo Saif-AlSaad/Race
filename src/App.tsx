@@ -46,9 +46,11 @@ export default function App() {
   );
 
   const [difficulty, setDifficultyState] = useState<DifficultyLevel>(() => {
-    const saved = localStorage.getItem(STORAGE_DIFFICULTY) as DifficultyLevel;
-    if (saved && (saved === "amateur" || saved === "pro" || saved === "legend")) return saved;
-    return "pro";
+    const saved = localStorage.getItem(STORAGE_DIFFICULTY) as string;
+    if (saved === "noob" || saved === "medium" || saved === "pro" || saved === "grandmaster") return saved;
+    if (saved === "amateur") return "noob";
+    if (saved === "legend") return "grandmaster";
+    return "medium";
   });
 
   const [career, setCareer] = useState<CareerProgress>(() => {

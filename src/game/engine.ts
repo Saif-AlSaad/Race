@@ -175,7 +175,7 @@ export class RaceEngine {
   private particles: Particle[] = [];
 
   // Career, difficulty & tuning
-  private difficulty: DifficultyLevel = "pro";
+  private difficulty: DifficultyLevel = "medium";
   private upgrades: CarUpgrades = { ...DEFAULT_UPGRADES };
   private totalLaps: number = TOTAL_LAPS;
   private lateralG: number = 0;
@@ -1100,18 +1100,36 @@ export class RaceEngine {
 
   private updateOpponents(dt: number) {
     const racing = this.mode === "racing" || this.mode === "finished" || this.mode === "attract";
+    const diffId = this.difficulty;
+    const cornerFactor = diffId === "noob" ? 0.070 : diffId === "medium" ? 0.055 : diffId === "pro" ? 0.045 : 0.035;
+    const accelFactor = diffId === "grandmaster" ? 0.74 : diffId === "pro" ? 0.65 : diffId === "medium" ? 0.58 : 0.50;
+    const slipstreamTow = diffId === "grandmaster" ? 1.10 : diffId === "pro" ? 1.08 : diffId === "medium" ? 1.05 : 1.02;
+
     for (const o of this.opponents) {
       if (!racing) continue;
       const seg = this.findSegment(o.z + SEGMENT_LENGTH * 2);
       let target = o.cruise;
       // corner speed
       const bend = Math.abs(seg.curve);
-      target *= 1 - Math.min(0.42, bend * 0.055);
+      target *= 1 - Math.min(0.42, bend * cornerFactor);
+
       // rubber band relative to player
       if (this.mode === "racing") {
         const diff = o.total - this.playerTotal;
-        if (diff > 32000) target *= 0.92;
-        else if (diff < -26000) target *= 1.07;
+        if (diffId === "noob") {
+          if (diff > 18000) target *= 0.85; // forgiving catch-up for beginners
+          else if (diff < -28000) target *= 1.02;
+        } else if (diffId === "medium") {
+          if (diff > 30000) target *= 0.92;
+          else if (diff < -26000) target *= 1.06;
+        } else if (diffId === "pro") {
+          if (diff > 36000) target *= 0.95;
+          else if (diff < -22000) target *= 1.09;
+        } else {
+          // grandmaster: apex predator pursuit
+          if (diff > 42000) target *= 0.97;
+          else if (diff < -14000) target *= 1.12;
+        }
       }
       // avoidance
       let threatSpeed = Infinity;
@@ -1128,11 +1146,11 @@ export class RaceEngine {
           threatSpeed = Math.min(threatSpeed, b.speed);
         } else if (rel >= 760 && rel < 1400 && Math.abs(b.offset - o.offset) < 0.38) {
           // AI slipstream suction tow when chasing leading cars
-          target *= 1.07;
+          target *= slipstreamTow;
         }
       }
       if (threatSpeed < Infinity) target = Math.min(target, threatSpeed * 0.94);
-      if (o.speed < target) o.speed = Math.min(target, o.speed + BASE_ACCEL * 0.62 * dt);
+      if (o.speed < target) o.speed = Math.min(target, o.speed + BASE_ACCEL * accelFactor * dt);
       else o.speed = Math.max(target, o.speed + BRAKE_FORCE * 0.55 * dt);
       // gentle lane wander
       const want = Math.sin(this.time * 0.45 + o.wob) * 0.62 + seg.curve * -0.06;

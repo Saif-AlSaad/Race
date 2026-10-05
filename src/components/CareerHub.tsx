@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import {
   CAREER_TIERS, type CareerEvent, type CareerProgress,
-  type DifficultyLevel, DIFFICULTIES
+  type DifficultyLevel, DIFFICULTIES, DIFFICULTY_LEVELS
 } from "../game/constants";
 import { cn } from "../utils/cn";
 import { getAudio } from "../game/audio";
@@ -164,7 +164,7 @@ export default function CareerHub({
             <span className="px-2 text-[10px] font-mono tracking-widest text-white/40 uppercase">
               RACE DIFFICULTY:
             </span>
-            {(["amateur", "pro", "legend"] as DifficultyLevel[]).map((d) => {
+            {DIFFICULTY_LEVELS.map((d) => {
               const cfg = DIFFICULTIES[d];
               const active = selectedDifficulty === d;
               return (
@@ -175,10 +175,12 @@ export default function CareerHub({
                   className={cn(
                     "rounded px-3 py-1 font-display text-xs font-black tracking-widest transition-all",
                     active
-                      ? d === "legend"
-                        ? "bg-rose-500 text-white shadow-[0_0_12px_#f43f5e]"
+                      ? d === "grandmaster"
+                        ? "bg-gradient-to-r from-rose-500 via-fuchsia-500 to-purple-600 text-white shadow-[0_0_14px_rgba(244,63,94,0.8)]"
                         : d === "pro"
-                        ? "bg-ember-500 text-black shadow-[0_0_12px_#ff9e3d]"
+                        ? "bg-gradient-to-r from-amber-500 to-ember-500 text-black shadow-[0_0_12px_#ff9e3d]"
+                        : d === "medium"
+                        ? "bg-gradient-to-r from-sky-500 to-cyan-400 text-black shadow-[0_0_12px_#0ea5e9]"
                         : "bg-emerald-500 text-black shadow-[0_0_12px_#10b981]"
                       : "text-white/50 hover:bg-white/10 hover:text-white"
                   )}

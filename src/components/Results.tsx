@@ -36,7 +36,7 @@ export default function Results({
 }: ResultsProps) {
   const won = result.position === 1;
   const audio = getAudio();
-  const diffConfig = DIFFICULTIES[result.difficulty || "pro"];
+  const diffConfig = DIFFICULTIES[result.difficulty || "medium"] || DIFFICULTIES.medium;
 
   useEffect(() => {
     if (payout && payout.totalPurse > 0) {
@@ -137,7 +137,20 @@ export default function Results({
               </div>
               <div>
                 <span className="text-[9px] text-white/40 block">DIFFICULTY</span>
-                <span className="font-bold text-ember-400">{diffConfig.label} ({payout.difficultyMult}x)</span>
+                <span
+                  className={cn(
+                    "font-bold",
+                    result.difficulty === "grandmaster"
+                      ? "text-rose-400"
+                      : result.difficulty === "pro"
+                      ? "text-amber-400"
+                      : result.difficulty === "medium"
+                      ? "text-sky-400"
+                      : "text-emerald-400"
+                  )}
+                >
+                  {diffConfig.label} ({payout.difficultyMult}x)
+                </span>
               </div>
             </div>
           </div>

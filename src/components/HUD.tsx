@@ -30,7 +30,7 @@ export default function HUD({
 
   const mph = hud.mph.toString().padStart(3, "0");
   const boostFull = hud.boost > 97;
-  const diffConfig = DIFFICULTIES[hud.difficulty] || DIFFICULTIES.pro;
+  const diffConfig = DIFFICULTIES[hud.difficulty] || DIFFICULTIES.medium;
 
   // Shift LED colors: 0..7
   // 1, 2: Green
@@ -158,8 +158,19 @@ export default function HUD({
             <span className="text-[10px] font-bold tracking-[0.25em] text-ember-300/90">
               {hud.position === 1 ? "LEADER" : hud.gapAhead ? `${hud.gapAhead}s TO P${hud.position - 1}` : `${ordinal(hud.position)} PLACE`}
             </span>
-            <span className="text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.2 border border-ember-400/30 text-ember-400/90 bg-ember-500/10 rounded">
-              {diffConfig.label}
+            <span
+              className={cn(
+                "text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 border rounded flex items-center gap-1",
+                hud.difficulty === "grandmaster"
+                  ? "border-rose-400/60 text-rose-300 bg-rose-500/20 shadow-[0_0_8px_rgba(244,63,94,0.45)]"
+                  : hud.difficulty === "pro"
+                  ? "border-amber-400/50 text-amber-300 bg-amber-500/20"
+                  : hud.difficulty === "medium"
+                  ? "border-sky-400/50 text-sky-300 bg-sky-500/20"
+                  : "border-emerald-400/50 text-emerald-300 bg-emerald-500/20"
+              )}
+            >
+              {diffConfig.label} • {diffConfig.cashMult}X
             </span>
           </div>
         </div>

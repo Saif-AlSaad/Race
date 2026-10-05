@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 import {
   Flag, Gauge, Play, Timer, Trophy, Volume2, VolumeX, Wind, Zap,
-  Music, Sun, Moon, CloudRain, Settings, Sparkles
+  Music, Sun, Moon, CloudRain, Settings, Sparkles, ShieldCheck, Flame
 } from "lucide-react";
 import {
   CARS, GAME_SUB, GAME_TITLE, TRACK_NAME, formatTime, type WeatherMode,
-  type DifficultyLevel, DIFFICULTIES, type CareerProgress, DEFAULT_UPGRADES,
+  type DifficultyLevel, DIFFICULTIES, DIFFICULTY_LEVELS, type CareerProgress, DEFAULT_UPGRADES,
   CUSTOM_PAINTS
 } from "../game/constants";
 import { carPreview } from "../game/sprites";
@@ -63,7 +63,8 @@ export default function Menu({
   }, [weather, career.upgrades]);
 
   const atmoName = weather === "night" ? "NEON MIDNIGHT" : weather === "rain" ? "CYBER STORM" : "GOLDEN HOUR";
-  const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — NITRO SPEED BOOST — DRIFT TO CHARGE`;
+  const diffCfg = DIFFICULTIES[difficulty] || DIFFICULTIES.medium;
+  const ticker = `${TRACK_NAME} — 3 LAPS — 7 RIVALS — ${atmoName} — DIFFICULTY: ${diffCfg.label} (${diffCfg.cashMult}X PRIZE) — NITRO BOOST`;
   const totalStars = Object.values(career.stars).reduce((a, b) => a + b, 0);
 
   return (
@@ -243,8 +244,8 @@ export default function Menu({
           {/* Difficulty Preset Pill Selector */}
           <div className="flex items-center gap-2">
             <span className="font-display text-[10px] tracking-[0.3em] text-white/50">DIFFICULTY:</span>
-            <div className="inline-flex border border-white/15 bg-night-950/80 p-0.5 backdrop-blur-md shadow-lg">
-              {(["amateur", "pro", "legend"] as DifficultyLevel[]).map((d) => {
+            <div className="inline-flex border border-white/15 bg-night-950/80 p-0.5 backdrop-blur-md shadow-lg rounded">
+              {DIFFICULTY_LEVELS.map((d) => {
                 const cfg = DIFFICULTIES[d];
                 const active = difficulty === d;
                 return (
@@ -253,19 +254,36 @@ export default function Menu({
                     type="button"
                     onClick={() => onSelectDifficulty(d)}
                     className={cn(
-                      "flex items-center gap-1.5 px-3 py-1 font-display text-[10px] tracking-[0.16em] transition-all",
+                      "flex items-center gap-1.5 px-2.5 sm:px-3 py-1 font-display text-[10px] tracking-[0.16em] transition-all rounded-xs",
                       active
-                        ? d === "legend"
-                          ? "bg-rose-500 font-bold text-white shadow-[0_0_16px_#f43f5e]"
+                        ? d === "grandmaster"
+                          ? "bg-gradient-to-r from-rose-500 via-fuchsia-500 to-purple-600 font-extrabold text-white shadow-[0_0_20px_rgba(244,63,94,0.85)] ring-1 ring-rose-300/40"
                           : d === "pro"
-                          ? "bg-ember-500 font-bold text-night-900 shadow-[0_0_16px_#ff9e3d]"
-                          : "bg-emerald-500 font-bold text-night-900 shadow-[0_0_16px_#10b981]"
+                          ? "bg-gradient-to-r from-amber-500 to-ember-500 font-bold text-night-900 shadow-[0_0_16px_rgba(255,158,61,0.6)]"
+                          : d === "medium"
+                          ? "bg-gradient-to-r from-sky-500 to-cyan-400 font-bold text-night-900 shadow-[0_0_16px_rgba(14,165,233,0.6)]"
+                          : "bg-emerald-500 font-bold text-night-900 shadow-[0_0_16px_rgba(16,185,129,0.6)]"
                         : "text-white/60 hover:bg-white/5 hover:text-white"
                     )}
-                    title={cfg.desc}
+                    title={`${cfg.label} (${cfg.cashMult}X Payout) — ${cfg.desc}`}
                   >
-                    {cfg.label}
-                    <span className="font-mono text-[9px] opacity-75">{cfg.cashMult}X</span>
+                    {d === "noob" && <ShieldCheck className="h-3 w-3" />}
+                    {d === "medium" && <Gauge className="h-3 w-3" />}
+                    {d === "pro" && <Flame className="h-3 w-3" />}
+                    {d === "grandmaster" && <Zap className="h-3 w-3 fill-current" />}
+                    <span>{cfg.label}</span>
+                    <span
+                      className={cn(
+                        "font-mono text-[9px] px-1 py-0.2 rounded font-bold",
+                        active
+                          ? d === "grandmaster"
+                            ? "bg-white/20 text-white"
+                            : "bg-night-950/40 text-night-900"
+                          : "bg-white/10 text-white/70"
+                      )}
+                    >
+                      {cfg.cashMult}X
+                    </span>
                   </button>
                 );
               })}

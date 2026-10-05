@@ -374,7 +374,9 @@ export const STORAGE_SETTINGS = "apex.settings";
 export const STORAGE_CAREER = "apex.career";
 export const STORAGE_DIFFICULTY = "apex.difficulty";
 
-export type DifficultyLevel = "amateur" | "pro" | "legend";
+export type DifficultyLevel = "noob" | "medium" | "pro" | "grandmaster";
+
+export const DIFFICULTY_LEVELS: DifficultyLevel[] = ["noob", "medium", "pro", "grandmaster"];
 
 export interface DifficultyConfig {
   id: DifficultyLevel;
@@ -383,34 +385,56 @@ export interface DifficultyConfig {
   aiSpeedMult: number;
   cashMult: number;
   desc: string;
+  tagline: string;
+  color: string;
 }
 
-export const DIFFICULTIES: Record<DifficultyLevel, DifficultyConfig> = {
-  amateur: {
-    id: "amateur",
-    label: "AMATEUR",
-    badge: "ROOKIE // 1.0X",
-    aiSpeedMult: 0.88,
+export const DIFFICULTIES: Record<DifficultyLevel, DifficultyConfig> & Record<string, DifficultyConfig> = {
+  noob: {
+    id: "noob",
+    label: "NOOB",
+    badge: "ROOKIE // 1X",
+    aiSpeedMult: 0.82,
     cashMult: 1.0,
-    desc: "Forgiving opponents, gentle rubberbanding, standard payouts",
+    desc: "Forgiving opponents, gentle cornering, relaxed pace. Standard 1x purse.",
+    tagline: "Beginner Friendly",
+    color: "#10b981",
+  },
+  medium: {
+    id: "medium",
+    label: "MEDIUM",
+    badge: "CHALLENGER // 2X",
+    aiSpeedMult: 0.95,
+    cashMult: 2.0,
+    desc: "Balanced competition, active rival overtakes. Double 2x prize purse.",
+    tagline: "Standard Pace",
+    color: "#0ea5e9",
   },
   pro: {
     id: "pro",
     label: "PRO",
-    badge: "VETERAN // 1.5X",
-    aiSpeedMult: 1.0,
-    cashMult: 1.5,
-    desc: "Realistic race pace, competitive AI overtakes, +50% prize bonus",
+    badge: "VETERAN // 3X",
+    aiSpeedMult: 1.06,
+    cashMult: 3.0,
+    desc: "Aggressive pack racing, late braking, tight overtakes. Triple 3x high-stakes purse.",
+    tagline: "Fast & Aggressive",
+    color: "#ff9e3d",
   },
-  legend: {
-    id: "legend",
-    label: "LEGEND",
-    badge: "ELITE // 2.0X",
-    aiSpeedMult: 1.12,
-    cashMult: 2.0,
-    desc: "Aggressive slipstreaming, late braking, double prize purse",
+  grandmaster: {
+    id: "grandmaster",
+    label: "GRANDMASTER",
+    badge: "APEX // 5X",
+    aiSpeedMult: 1.18,
+    cashMult: 5.0,
+    desc: "Apex predator AI, surgical racing lines, zero mercy. Massive 5x jackpot purse!",
+    tagline: "Ultimate Challenge",
+    color: "#f43f5e",
   },
 };
+
+// Aliases for backward compatibility with legacy saves
+(DIFFICULTIES as Record<string, DifficultyConfig>).amateur = DIFFICULTIES.noob;
+(DIFFICULTIES as Record<string, DifficultyConfig>).legend = DIFFICULTIES.grandmaster;
 
 export interface CarUpgrades {
   engine: number; // 0..3
