@@ -93,4 +93,6 @@ npm run preview
 - **Touch / Mobile**: On-screen steering buttons, throttle, brake, and drift pedals.
 
 ##Author 
-*Saif Al Saad*
+*Saif Al Saad* <br>
+*Software Engineering* <br>
+*Daffodil International University*
